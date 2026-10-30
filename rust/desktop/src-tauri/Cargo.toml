@@ -1,0 +1,15 @@
+[package]
+name = "control-station-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+control-station-vehicle-state = { path = "../../crates/vehicle-state" }
+control-station-commands = { path = "../../crates/commands" }
+control-station-map-cache = { path = "../../crates/map-cache" }

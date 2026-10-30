@@ -1,0 +1,10 @@
+[package]
+name = "control-station-commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+control-station-vehicle-state = { path = "../vehicle-state" }

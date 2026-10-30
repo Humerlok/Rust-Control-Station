@@ -1,0 +1,5 @@
+/target/
+/desktop/ui/node_modules/
+/desktop/ui/dist/
+/desktop/ui/tsconfig.tsbuildinfo
+/desktop/src-tauri/gen/

@@ -1,0 +1,32 @@
+name: Rust Control Station
+
+on:
+  push:
+    paths: ["rust/**", "AGENTS.md", ".github/workflows/rust-control-station.yml"]
+  pull_request:
+    paths: ["rust/**", "AGENTS.md", ".github/workflows/rust-control-station.yml"]
+
+jobs:
+  checks:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: rust/desktop/ui/package-lock.json
+      - run: npm install --prefix desktop/ui
+      - run: npm run build --prefix desktop/ui
