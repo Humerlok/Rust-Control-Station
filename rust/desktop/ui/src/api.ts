@@ -3,9 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import { createMockBackend } from "./mockBackend";
 import type {
   ActionInfo,
+  CalibrationKind,
+  CalibrationState,
   ConnectionConfig,
   FieldInfo,
   LinkInfo,
+  ParamEntry,
+  ParamMeta,
+  ParamsProgress,
+  ParsedParamFile,
   SerialPortInfo,
   StatusText,
   Telemetry,
@@ -32,9 +38,24 @@ export interface Backend {
   takeoff(altitudeM: number): Promise<string>;
   flyTo(lat: number, lon: number, altitudeM: number): Promise<string>;
   setHomeHere(lat: number, lon: number, altitudeM: number): Promise<string>;
+  paramsRefresh(): Promise<number>;
+  paramsList(): Promise<ParamEntry[]>;
+  paramSet(name: string, value: number): Promise<number>;
+  paramsMetadata(): Promise<Record<string, ParamMeta>>;
+  paramsParseFile(text: string): Promise<ParsedParamFile>;
+  paramsFormatFile(): Promise<string>;
+  calibrationStart(kind: CalibrationKind): Promise<string>;
+  calibrationAccelConfirm(): Promise<string>;
+  calibrationCompassAccept(): Promise<string>;
+  calibrationCompassCancel(): Promise<string>;
+  calibrationCancel(): Promise<string>;
+  radioCalibrationFinish(): Promise<string>;
+  calibrationStatus(): Promise<CalibrationState>;
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
+  onParamsProgress(cb: (p: ParamsProgress) => void): Promise<Unlisten>;
+  onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
 }
 
 const subscribe =
@@ -61,9 +82,24 @@ const tauriBackend: Backend = {
   takeoff: (altitudeM) => invoke("takeoff", { altitudeM }),
   flyTo: (lat, lon, altitudeM) => invoke("fly_to", { lat, lon, altitudeM }),
   setHomeHere: (lat, lon, altitudeM) => invoke("set_home_here", { lat, lon, altitudeM }),
+  paramsRefresh: () => invoke("params_refresh"),
+  paramsList: () => invoke("params_list"),
+  paramSet: (name, value) => invoke("param_set", { name, value }),
+  paramsMetadata: () => invoke("params_metadata"),
+  paramsParseFile: (text) => invoke("params_parse_file", { text }),
+  paramsFormatFile: () => invoke("params_format_file"),
+  calibrationStart: (kind) => invoke("calibration_start", { kind }),
+  calibrationAccelConfirm: () => invoke("calibration_accel_confirm"),
+  calibrationCompassAccept: () => invoke("calibration_compass_accept"),
+  calibrationCompassCancel: () => invoke("calibration_compass_cancel"),
+  calibrationCancel: () => invoke("calibration_cancel"),
+  radioCalibrationFinish: () => invoke("radio_calibration_finish"),
+  calibrationStatus: () => invoke("calibration_status"),
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
+  onParamsProgress: subscribe<ParamsProgress>("params-progress"),
+  onCalibration: subscribe<CalibrationState>("calibration"),
 };
 
 const useMock =

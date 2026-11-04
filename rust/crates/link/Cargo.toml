@@ -14,6 +14,7 @@ control-station-vehicle-state = { path = "../vehicle-state" }
 control-station-ardupilot-meta = { path = "../ardupilot-meta" }
 control-station-commands = { path = "../commands" }
 control-station-dataflash = { path = "../dataflash" }
+control-station-params = { path = "../params" }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -79,3 +79,50 @@ export const emptyTelemetry: Telemetry = {
   home: null,
   vehicles: [],
 };
+
+export type ParamEntry = { name: string; value: number; paramType: string; index: number };
+
+export type ParamMeta = {
+  displayName: string;
+  description: string;
+  units: string;
+  min: number | null;
+  max: number | null;
+  increment: number | null;
+  values: Array<{ code: number; label: string }>;
+  bitmask: Array<{ bit: number; label: string }>;
+  rebootRequired: boolean;
+  readOnly: boolean;
+  user: "Standard" | "Advanced";
+};
+
+export type ParamsProgress = { received: number; total: number; done: boolean; error: string | null };
+export type ParsedParamFile = { params: Array<{ name: string; value: number }>; skipped: string[] };
+
+export type CalibrationKind =
+  | "accel_full"
+  | "accel_level"
+  | "accel_simple"
+  | "gyro"
+  | "baro"
+  | "compass"
+  | "radio"
+  | "esc";
+
+export type CalibrationState = {
+  kind: string | null;
+  state: "idle" | "running" | "waiting" | "succeeded" | "failed";
+  message: string;
+  accelPosition: { index: number; name: string } | null;
+  compass: Array<{ compassId: number; completionPct: number; status: string; fitness: number | null; autosaved: boolean }>;
+  radio: Array<{ channel: number; min: number; max: number; value: number }>;
+};
+
+export const idleCalibration: CalibrationState = {
+  kind: null,
+  state: "idle",
+  message: "",
+  accelPosition: null,
+  compass: [],
+  radio: [],
+};

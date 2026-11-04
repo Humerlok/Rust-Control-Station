@@ -7,10 +7,15 @@ members = [
   "crates/map-cache",
   "crates/dataflash",
   "crates/ardupilot-meta",
+  "crates/params",
   "crates/link",
   "desktop/src-tauri",
 ]
 resolver = "2"
+
+# Parsing an 80 MB log is unusably slow without optimization, even in dev builds.
+[profile.dev.package.control-station-dataflash]
+opt-level = 3
 
 [workspace.package]
 version = "0.1.0"

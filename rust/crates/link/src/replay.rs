@@ -1,10 +1,11 @@
 //! Plays an ArduPilot DataFlash log as a live MAVLink vehicle (sysid 1, compid 1), so the
 //! app can be exercised without hardware.
 use std::{
+    collections::HashMap,
     path::Path,
     sync::{
         atomic::{AtomicU8, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -12,9 +13,10 @@ use std::{
 use control_station_dataflash::Log;
 use control_station_mavlink::{
     dialect::{
-        GpsFixType, MavAutopilot, MavModeFlag, MavResult, MavSeverity, MavState, MavType,
-        ATTITUDE_DATA, COMMAND_ACK_DATA, GLOBAL_POSITION_INT_DATA, GPS_RAW_INT_DATA,
-        HEARTBEAT_DATA, HOME_POSITION_DATA, STATUSTEXT_DATA, SYS_STATUS_DATA, VFR_HUD_DATA,
+        GpsFixType, MavAutopilot, MavModeFlag, MavParamType, MavResult, MavSeverity, MavState,
+        MavType, ATTITUDE_DATA, COMMAND_ACK_DATA, GLOBAL_POSITION_INT_DATA, GPS_RAW_INT_DATA,
+        HEARTBEAT_DATA, HOME_POSITION_DATA, PARAM_VALUE_DATA, STATUSTEXT_DATA, SYS_STATUS_DATA,
+        VFR_HUD_DATA,
     },
     encode, MavHeader, MavMessage, MavlinkVersion, Parser,
 };
@@ -88,7 +90,7 @@ pub async fn open(path: &str, speed: f64) -> Result<Connection, LinkError> {
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    let events = tokio::task::spawn_blocking(move || load_events(&path))
+    let Loaded { events, params } = tokio::task::spawn_blocking(move || load_log(&path))
         .await
         .map_err(|e| LinkError::Other(e.to_string()))??;
     if events.is_empty() {
@@ -101,7 +103,7 @@ pub async fn open(path: &str, speed: f64) -> Result<Connection, LinkError> {
     };
     let (link_side, replay_side) = tokio::io::duplex(1 << 16);
     let (link_reader, link_writer) = tokio::io::split(link_side);
-    tokio::spawn(run(events, speed, replay_side));
+    tokio::spawn(run(events, ReplayParams::new(params), speed, replay_side));
     Ok(Connection::from_io(
         link_reader,
         link_writer,
@@ -109,91 +111,153 @@ pub async fn open(path: &str, speed: f64) -> Result<Connection, LinkError> {
     ))
 }
 
-fn load_events(path: &Path) -> Result<Vec<Timed>, LinkError> {
-    let log = Log::open(path).map_err(|e| LinkError::Other(format!("{}: {e}", path.display())))?;
-    let mut out = Vec::new();
-    let f = |r: &control_station_dataflash::Record, c: &str| r.f64(c).unwrap_or(0.0);
-    for r in log.records_named("ATT") {
-        if let Some(t) = r.time_us() {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Attitude {
-                    roll: f(&r, "Roll"),
-                    pitch: f(&r, "Pitch"),
-                    yaw: f(&r, "Yaw"),
-                },
-            });
-        }
-    }
-    for r in log.records_named("POS") {
-        if let Some(t) = r.time_us() {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Position {
-                    lat: f(&r, "Lat"),
-                    lon: f(&r, "Lng"),
-                    alt: f(&r, "Alt"),
-                    relative: f(&r, "RelHomeAlt"),
-                },
-            });
-        }
-    }
-    for r in log.records_named("GPS") {
-        if let Some(t) = r.time_us() {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Gps {
-                    status: r.i64("Status").unwrap_or(0),
-                    sats: r.i64("NSats").unwrap_or(0),
-                    hdop: f(&r, "HDop"),
-                    lat: f(&r, "Lat"),
-                    lon: f(&r, "Lng"),
-                    alt: f(&r, "Alt"),
-                    speed: f(&r, "Spd"),
-                },
-            });
-        }
-    }
-    for r in log.records_named("BAT") {
-        if let Some(t) = r.time_us() {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Battery {
-                    volts: f(&r, "Volt"),
-                    amps: f(&r, "Curr"),
-                    remaining: r.i64("RemPct"),
-                },
-            });
-        }
-    }
-    for r in log.records_named("MODE") {
-        if let (Some(t), Some(mode)) = (r.time_us(), r.i64("Mode")) {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Mode(mode as u32),
-            });
-        }
-    }
-    for r in log.records_named("ARM") {
-        if let (Some(t), Some(state)) = (r.time_us(), r.i64("ArmState")) {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Arm(state != 0),
-            });
-        }
-    }
-    for r in log.records_named("MSG") {
-        if let (Some(t), Some(text)) = (r.time_us(), r.text("Message")) {
-            out.push(Timed {
-                time_us: t,
-                event: Event::Text(text.to_owned()),
-            });
-        }
-    }
-    out.sort_by_key(|e| e.time_us);
-    Ok(out)
+/// Everything the replay needs from a log, decoded in a single pass over its records.
+struct Loaded {
+    events: Vec<Timed>,
+    /// Parameters in first-seen order with their last logged value.
+    params: Vec<(String, f32)>,
 }
 
+fn load_log(path: &Path) -> Result<Loaded, LinkError> {
+    let log = Log::open(path).map_err(|e| LinkError::Other(format!("{}: {e}", path.display())))?;
+    let mut events = Vec::new();
+    let mut params: Vec<(String, f32)> = Vec::new();
+    let mut param_index: HashMap<String, usize> = HashMap::new();
+    let f = |r: &control_station_dataflash::Record, c: &str| r.f64(c).unwrap_or(0.0);
+    for r in log.records() {
+        let event = match &*r.name {
+            "PARM" => {
+                if let (Some(name), Some(value)) = (r.text("Name"), r.f64("Value")) {
+                    let value = value as f32;
+                    match param_index.get(name) {
+                        Some(i) => params[*i].1 = value,
+                        None => {
+                            param_index.insert(name.to_owned(), params.len());
+                            params.push((name.to_owned(), value));
+                        }
+                    }
+                }
+                continue;
+            }
+            "ATT" => Event::Attitude {
+                roll: f(&r, "Roll"),
+                pitch: f(&r, "Pitch"),
+                yaw: f(&r, "Yaw"),
+            },
+            "POS" => Event::Position {
+                lat: f(&r, "Lat"),
+                lon: f(&r, "Lng"),
+                alt: f(&r, "Alt"),
+                relative: f(&r, "RelHomeAlt"),
+            },
+            "GPS" => Event::Gps {
+                status: r.i64("Status").unwrap_or(0),
+                sats: r.i64("NSats").unwrap_or(0),
+                hdop: f(&r, "HDop"),
+                lat: f(&r, "Lat"),
+                lon: f(&r, "Lng"),
+                alt: f(&r, "Alt"),
+                speed: f(&r, "Spd"),
+            },
+            "BAT" => Event::Battery {
+                volts: f(&r, "Volt"),
+                amps: f(&r, "Curr"),
+                remaining: r.i64("RemPct"),
+            },
+            "MODE" => match r.i64("Mode") {
+                Some(mode) => Event::Mode(mode as u32),
+                None => continue,
+            },
+            "ARM" => match r.i64("ArmState") {
+                Some(state) => Event::Arm(state != 0),
+                None => continue,
+            },
+            "MSG" => match r.text("Message") {
+                Some(text) => Event::Text(text.to_owned()),
+                None => continue,
+            },
+            _ => continue,
+        };
+        if let Some(time_us) = r.time_us() {
+            events.push(Timed { time_us, event });
+        }
+    }
+    events.sort_by_key(|e| e.time_us);
+    Ok(Loaded { events, params })
+}
+
+/// The parameters the replayed vehicle serves and accepts writes to.
+struct ReplayParams {
+    items: Vec<(String, f32, MavParamType)>,
+}
+
+impl ReplayParams {
+    fn new(params: Vec<(String, f32)>) -> Self {
+        let items = params
+            .into_iter()
+            .map(|(name, value)| {
+                let kind = if value.fract() == 0.0 && value.abs() < 16_777_216.0 {
+                    MavParamType::MAV_PARAM_TYPE_INT32
+                } else {
+                    MavParamType::MAV_PARAM_TYPE_REAL32
+                };
+                (name, value, kind)
+            })
+            .collect();
+        Self { items }
+    }
+
+    fn value_message(&self, index: usize) -> Option<MavMessage> {
+        let (name, value, kind) = self.items.get(index)?;
+        Some(MavMessage::PARAM_VALUE(PARAM_VALUE_DATA {
+            param_value: *value,
+            param_count: self.items.len() as u16,
+            param_index: index as u16,
+            param_id: name.as_str().into(),
+            param_type: *kind,
+        }))
+    }
+
+    fn find(&self, name: &str) -> Option<usize> {
+        self.items.iter().position(|(n, _, _)| n == name)
+    }
+
+    /// Stores a written value (integer parameters round, like the real firmware) and returns
+    /// the index to echo.
+    fn set(&mut self, name: &str, value: f32) -> Option<usize> {
+        let index = self.find(name)?;
+        let item = &mut self.items[index];
+        item.1 = if item.2 == MavParamType::MAV_PARAM_TYPE_INT32 {
+            value.round()
+        } else {
+            value
+        };
+        Some(index)
+    }
+}
+
+fn char_array_text(bytes: &[u8]) -> String {
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    String::from_utf8_lossy(&bytes[..end]).into_owned()
+}
+
+/// Streams the whole table, a few hundred parameters per second like a real telemetry link.
+async fn stream_params(sender: Sender, params: Arc<Mutex<ReplayParams>>) {
+    let count = params.lock().expect("replay params").items.len();
+    for index in 0..count {
+        let message = params.lock().expect("replay params").value_message(index);
+        if let Some(message) = message {
+            if !sender.send(message).await {
+                return;
+            }
+        }
+        if index % 50 == 49 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+#[derive(Clone)]
 struct Sender {
     tx: mpsc::Sender<Vec<u8>>,
     sequence: Arc<AtomicU8>,
@@ -250,6 +314,13 @@ fn fix_type(status: i64) -> GpsFixType {
     }
 }
 
+fn command_ack(command: control_station_mavlink::dialect::MavCmd) -> MavMessage {
+    MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+        command,
+        result: MavResult::MAV_RESULT_UNSUPPORTED,
+    })
+}
+
 fn truncate_text(text: &str) -> String {
     let mut end = text.len().min(49);
     while !text.is_char_boundary(end) {
@@ -258,7 +329,12 @@ fn truncate_text(text: &str) -> String {
     text[..end].to_owned()
 }
 
-async fn run(events: Vec<Timed>, speed: f64, stream: tokio::io::DuplexStream) {
+async fn run(
+    events: Vec<Timed>,
+    params: ReplayParams,
+    speed: f64,
+    stream: tokio::io::DuplexStream,
+) {
     let (mut incoming, mut outgoing) = tokio::io::split(stream);
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
     let sender = Sender {
@@ -274,12 +350,11 @@ async fn run(events: Vec<Timed>, speed: f64, stream: tokio::io::DuplexStream) {
         }
     });
 
-    // The log cannot obey commands: answer them so the UI reports it instead of timing out.
+    // The log cannot obey commands (they get "unsupported"), but it serves and accepts
+    // parameters so the whole parameter stack can be exercised without a drone.
+    let params = Arc::new(Mutex::new(params));
     let responder = {
-        let sender = Sender {
-            tx: sender.tx.clone(),
-            sequence: sender.sequence.clone(),
-        };
+        let sender = sender.clone();
         tokio::spawn(async move {
             let mut parser = Parser::new();
             let mut buf = [0u8; 1024];
@@ -288,17 +363,34 @@ async fn run(events: Vec<Timed>, speed: f64, stream: tokio::io::DuplexStream) {
                     return;
                 }
                 for packet in parser.push(&buf[..n]) {
-                    let command = match packet.message {
-                        MavMessage::COMMAND_LONG(c) => c.command,
-                        MavMessage::COMMAND_INT(c) => c.command,
-                        _ => continue,
+                    let reply = match packet.message {
+                        MavMessage::COMMAND_LONG(c) => Some(command_ack(c.command)),
+                        MavMessage::COMMAND_INT(c) => Some(command_ack(c.command)),
+                        MavMessage::PARAM_REQUEST_LIST(_) => {
+                            tokio::spawn(stream_params(sender.clone(), params.clone()));
+                            None
+                        }
+                        MavMessage::PARAM_REQUEST_READ(r) => {
+                            let table = params.lock().expect("replay params");
+                            let index = if r.param_index >= 0 {
+                                Some(r.param_index as usize)
+                            } else {
+                                table.find(&char_array_text(&*r.param_id))
+                            };
+                            index.and_then(|i| table.value_message(i))
+                        }
+                        MavMessage::PARAM_SET(set) => {
+                            let mut table = params.lock().expect("replay params");
+                            table
+                                .set(&char_array_text(&*set.param_id), set.param_value)
+                                .and_then(|i| table.value_message(i))
+                        }
+                        _ => None,
                     };
-                    let ack = MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
-                        command,
-                        result: MavResult::MAV_RESULT_UNSUPPORTED,
-                    });
-                    if !sender.send(ack).await {
-                        return;
+                    if let Some(reply) = reply {
+                        if !sender.send(reply).await {
+                            return;
+                        }
                     }
                 }
             }

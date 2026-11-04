@@ -1,11 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod calibration_cmds;
+mod params_cmds;
+
+use std::sync::Arc;
+
 use control_station_commands::{ActionInfo, ACTIONS};
-use control_station_link::{ConnectionConfig, LinkEvent, LinkInfo, LinkManager, TelemetrySnapshot};
+use control_station_link::{
+    CalibrationService, ConnectionConfig, LinkEvent, LinkInfo, LinkManager, ParamService,
+    ParamWriter, TelemetrySnapshot,
+};
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
 use serde::Serialize;
-use tauri::{Emitter, State};
+use tauri::{Emitter, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
 
 struct AppState {
@@ -134,10 +142,69 @@ async fn set_home_here(
 fn main() {
     let link = LinkManager::new();
     let mut events = link.subscribe();
+    let params_link = link.clone();
+    let calibration_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            let cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| std::env::temp_dir())
+                .join("param-metadata");
+            let params = ParamService::new(params_link).with_cache_dir(cache_dir);
+            let mut progress = params.subscribe_progress();
+            app.manage(params_cmds::ParamsState {
+                service: params.clone(),
+            });
+            let params_handle = handle.clone();
+
+            // Calibrations write RC/ESC parameters through the parameter service.
+            let writer: ParamWriter = {
+                let params = params.clone();
+                Arc::new(move |name, value| {
+                    let params = params.clone();
+                    Box::pin(
+                        async move { params.set(&name, value).await.map_err(|e| e.to_string()) },
+                    )
+                })
+            };
+            let calibration = CalibrationService::new(calibration_link, writer);
+            let mut calibration_events = calibration.subscribe();
+            app.manage(calibration.clone());
+            let calibration_handle = handle.clone();
+            tauri::async_runtime::spawn(async move { calibration.run().await });
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match calibration_events.recv().await {
+                        Ok(state) => {
+                            if let Err(error) = calibration_handle.emit("calibration", state) {
+                                eprintln!("failed to emit calibration: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            tauri::async_runtime::spawn(async move {
+                params.start();
+                loop {
+                    match progress.recv().await {
+                        Ok(p) => {
+                            if let Err(error) = params_handle.emit("params-progress", p) {
+                                eprintln!("failed to emit params-progress: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
             tauri::async_runtime::spawn(async move {
                 loop {
                     let sent = match events.recv().await {
@@ -172,7 +239,20 @@ fn main() {
             reboot,
             takeoff,
             fly_to,
-            set_home_here
+            set_home_here,
+            params_cmds::params_refresh,
+            params_cmds::params_list,
+            params_cmds::param_set,
+            params_cmds::params_metadata,
+            params_cmds::params_parse_file,
+            params_cmds::params_format_file,
+            calibration_cmds::calibration_start,
+            calibration_cmds::calibration_accel_confirm,
+            calibration_cmds::calibration_compass_accept,
+            calibration_cmds::calibration_compass_cancel,
+            calibration_cmds::calibration_cancel,
+            calibration_cmds::radio_calibration_finish,
+            calibration_cmds::calibration_status
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop application");

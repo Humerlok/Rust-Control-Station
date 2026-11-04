@@ -8,6 +8,7 @@ import type {
   Telemetry,
 } from "./types";
 import { emptyLink, emptyTelemetry } from "./types";
+import { createPhase2Mock } from "./mockPhase2";
 
 const CENTER = { lat: -21.92, lon: -47.93 };
 const RADIUS_DEG = 0.0012;
@@ -112,6 +113,9 @@ export function createMockBackend(): Backend {
         nav_bearing: heading,
         throttle: armed ? 52 : 0,
         dist_to_home: distHome,
+        ...Object.fromEntries(
+          Array.from({ length: 8 }, (_, i) => [`ch${i + 1}in`, Math.round(1500 + (i < 4 ? 300 : 0) * Math.sin(t * 0.3 + i))]),
+        ),
       },
       position: { lat, lon, altM: alt },
       home: { lat: CENTER.lat, lon: CENTER.lon, altM: 580 },
@@ -170,6 +174,8 @@ export function createMockBackend(): Backend {
     if (!connected) throw "no vehicle connected";
   }
 
+  const phase2 = createPhase2Mock({ isConnected: () => connected, isArmed: () => armed, emitStatus });
+
   async function command(label: string): Promise<string> {
     await sleep(150);
     requireConnected();
@@ -193,6 +199,7 @@ export function createMockBackend(): Backend {
     ],
     async connect(config: ConnectionConfig) {
       if (config.type === "replay" && config.path.trim() === "") throw "replay file path is empty";
+      phase2.reset();
       connecting = true;
       connected = false;
       emitLink();
@@ -206,6 +213,7 @@ export function createMockBackend(): Backend {
     async disconnect() {
       connected = false;
       connecting = false;
+      phase2.reset();
       emitLink();
     },
     linkStatus: async () => lastLink,
@@ -248,8 +256,23 @@ export function createMockBackend(): Backend {
     takeoff: (altitudeM) => command(`Takeoff to ${altitudeM} m`),
     flyTo: () => command("Fly to here"),
     setHomeHere: () => command("Set home here"),
+    paramsRefresh: phase2.paramsRefresh,
+    paramsList: phase2.paramsList,
+    paramSet: phase2.paramSet,
+    paramsMetadata: phase2.paramsMetadata,
+    paramsParseFile: phase2.paramsParseFile,
+    paramsFormatFile: phase2.paramsFormatFile,
+    calibrationStart: phase2.calibrationStart,
+    calibrationAccelConfirm: phase2.calibrationAccelConfirm,
+    calibrationCompassAccept: phase2.calibrationCompassAccept,
+    calibrationCompassCancel: phase2.calibrationCompassCancel,
+    calibrationCancel: phase2.calibrationCancel,
+    radioCalibrationFinish: phase2.radioCalibrationFinish,
+    calibrationStatus: phase2.calibrationStatus,
     onTelemetry: subscribe(listeners.telemetry),
     onStatusText: subscribe(listeners.statustext),
     onLink: subscribe(listeners.link),
+    onParamsProgress: phase2.onParamsProgress,
+    onCalibration: phase2.onCalibration,
   };
 }

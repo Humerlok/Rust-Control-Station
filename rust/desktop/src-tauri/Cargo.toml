@@ -15,3 +15,5 @@ control-station-link = { path = "../../crates/link" }
 control-station-commands = { path = "../../crates/commands" }
 control-station-transport = { path = "../../crates/transport" }
 control-station-vehicle-state = { path = "../../crates/vehicle-state" }
+control-station-ardupilot-meta = { path = "../../crates/ardupilot-meta" }
+control-station-params = { path = "../../crates/params" }

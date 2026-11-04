@@ -2,9 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isMockBackend } from "./api";
 import { ConnectBar } from "./components/ConnectBar";
 import { RebootButton } from "./components/RebootButton";
+import { paramStore } from "./useParams";
 import { useLive } from "./useLive";
+import { Calibration } from "./views/Calibration";
+import { ExtendedTuning } from "./views/ExtendedTuning";
 import { FlightData } from "./views/FlightData";
+import { Parameters } from "./views/Parameters";
 import { Placeholder } from "./views/Placeholder";
+
+// Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
+const LIVE_VIEWS = ["flight-data", "calibration", "parameters", "ext-tuning"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -43,6 +50,10 @@ export function App() {
   const label = NAV.flatMap((g) => g.items).find((i) => i.id === view)?.label ?? "";
   const connected = link.state === "connected" && telemetry.connected;
 
+  useEffect(() => {
+    paramStore.setConnection(link.state === "connected", telemetry.connected, telemetry.vehicleType);
+  }, [link.state, telemetry.connected, telemetry.vehicleType]);
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -73,7 +84,16 @@ export function App() {
         <div className="view" hidden={view !== "flight-data"}>
           <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} />
         </div>
-        {view !== "flight-data" && <Placeholder title={label} />}
+        <div className="view" hidden={view !== "calibration"}>
+          <Calibration telemetry={telemetry} messages={messages} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "parameters"}>
+          <Parameters notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "ext-tuning"}>
+          <ExtendedTuning telemetry={telemetry} notify={notify} />
+        </div>
+        {!LIVE_VIEWS.includes(view) && <Placeholder title={label} />}
       </main>
 
       {toast && (

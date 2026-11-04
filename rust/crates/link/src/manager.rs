@@ -106,6 +106,8 @@ struct Shared {
     inner: Mutex<Inner>,
     events: broadcast::Sender<LinkEvent>,
     acks: broadcast::Sender<AckEvent>,
+    /// Every valid packet received, for services (parameters, calibration, inspector).
+    packets: broadcast::Sender<Arc<Packet>>,
     timing: Timing,
 }
 
@@ -321,11 +323,13 @@ impl LinkManager {
     pub fn with_timing(timing: Timing) -> Self {
         let (events, _) = broadcast::channel(512);
         let (acks, _) = broadcast::channel(64);
+        let (packets, _) = broadcast::channel(2048);
         Self {
             shared: Arc::new(Shared {
                 inner: Mutex::new(Inner::new()),
                 events,
                 acks,
+                packets,
                 timing,
             }),
         }
@@ -337,6 +341,16 @@ impl LinkManager {
 
     pub fn subscribe(&self) -> broadcast::Receiver<LinkEvent> {
         self.shared.events.subscribe()
+    }
+
+    /// Every valid packet received on the link (a slow receiver lags and skips packets).
+    pub fn subscribe_packets(&self) -> broadcast::Receiver<Arc<Packet>> {
+        self.shared.packets.subscribe()
+    }
+
+    /// The selected vehicle and its type, or `NoVehicle` when none is alive.
+    pub fn selected_vehicle(&self) -> Result<(VehicleId, VehicleType), LinkError> {
+        self.target()
     }
 
     pub fn link_info(&self) -> LinkInfo {
@@ -434,12 +448,29 @@ impl LinkManager {
 
     /// Sends a COMMAND_LONG / COMMAND_INT and waits for its COMMAND_ACK, resending on silence.
     pub async fn send_command(&self, message: MavMessage) -> Result<(), LinkError> {
+        let timing = self.shared.timing;
+        self.send_command_with(message, timing.ack_timeout, timing.ack_attempts)
+            .await
+    }
+
+    /// Like [`send_command`](Self::send_command) with explicit timing, for commands whose ACK
+    /// only comes when a long operation finishes (resending would restart it).
+    pub async fn send_command_with(
+        &self,
+        message: MavMessage,
+        ack_timeout: Duration,
+        attempts: u32,
+    ) -> Result<(), LinkError> {
         let (target_system, command) = match &message {
             MavMessage::COMMAND_LONG(c) => (c.target_system, c.command as u32),
             MavMessage::COMMAND_INT(c) => (c.target_system, c.command as u32),
             _ => return Err(LinkError::Other("not a command message".into())),
         };
-        let timing = self.shared.timing;
+        let timing = Timing {
+            ack_timeout,
+            ack_attempts: attempts,
+            ..self.shared.timing
+        };
         let mut acks = self.shared.acks.subscribe();
         for _ in 0..timing.ack_attempts {
             self.send(&message)?;
@@ -626,8 +657,11 @@ async fn reader_task(shared: Arc<Shared>, mut reader: Box<dyn LinkReader>, gener
                 }
                 inner.counters.bytes_rx += n as u64;
                 inner.counters.bad_crc = parser.stats().bad_crc;
-                for packet in &packets {
-                    inner.handle_packet(packet, &shared.events, &shared.acks);
+                for packet in packets {
+                    inner.handle_packet(&packet, &shared.events, &shared.acks);
+                    if shared.packets.receiver_count() > 0 {
+                        let _ = shared.packets.send(Arc::new(packet));
+                    }
                 }
             }
             Err(error) => {
