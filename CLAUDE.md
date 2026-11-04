@@ -46,12 +46,16 @@ rust/
     mavlink/         — wraps the `mavlink` crate (ardupilotmega dialect): incremental v1/v2 Parser with CRC, encode()
     transport/       — open(Endpoint) -> Connection with split reader/writer: serial, TCP, UDP, UDPCl, WebSocket
     vehicle-state/   — VehicleState::apply(MavMessage), the named numeric FIELDS used by Quick View
-    ardupilot-meta/  — VehicleType (from MAV_TYPE), flight-mode tables, pdef parameter metadata (parse + cached download)
+    ardupilot-meta/  — VehicleType (from MAV_TYPE), flight-mode tables, pdef parameter metadata (parse + cached download),
+                       mission command catalog (data/mavcmd.xml, copied from the repo root)
     params/          — ParamTable, .param file parse/format, natural sort (pure, no I/O)
+    mission/         — MissionItem and the QGC WPL 110 `.waypoints` parser/formatter (pure)
     commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list)
     dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
     link/            — LinkManager (one connection, vehicles, stats, ACK-checked commands, packet bus, AUTO scan, log Replay)
-                       plus services built on its public API: ParamService (download/set/metadata), CalibrationService
+                       plus services built on its public API: ParamService (download/set/metadata), CalibrationService,
+                       InspectorService (per-message stats, decoded fields, watched series), MissionService
+                       (mission/fence/rally upload, download, clear)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -70,8 +74,9 @@ needs a rebuild that `tauri dev` does not trigger by itself (touch `src/main.rs`
 
 Connect type "Replay (log)" plays `exemplos/Teste 02 - tunning.BIN` (relative paths are also tried
 from parent directories). The replay serves the log's PARM records as parameters (read, list, set
-with echo) and answers every command with "unsupported". `exemplos/` is git-ignored: logs are large
-and are telemetry.
+with echo), keeps an in-memory mission/fence/rally store (upload then download round-trips) and
+answers every command with "unsupported". `exemplos/` is git-ignored: logs are large and are
+telemetry.
 
 To drive the real window without the OS foreground (screenshots, scripted clicks), launch with
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to the page;
@@ -79,10 +84,14 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 
 ### Current limitations
 
-Phases 1 and 2 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
-Tuning). MAVFTP, Inspector, mission planning and firmware are placeholders (see HANDOFF.md).
-Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration flows are covered only
-by loopback and Replay tests, not by hardware.
+Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
+Tuning, MAVLink Inspector, mission planning). MAVFTP and firmware are placeholders (see HANDOFF.md).
+Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration/mission flows are
+covered only by loopback and Replay tests, not by hardware.
+
+The `mavlink` crate is built with `mav2-message-extensions` (needed for `mission_type` on
+fence/rally); it adds extension fields to some messages (e.g. STATUSTEXT `id`/`chunk_seq`), so
+struct literals of dialect messages need `..Default::default()`.
 
 ### CI
 

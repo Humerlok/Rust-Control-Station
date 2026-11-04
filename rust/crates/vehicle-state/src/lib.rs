@@ -495,6 +495,7 @@ mod tests {
             &MavMessage::STATUSTEXT(STATUSTEXT_DATA {
                 severity: control_station_mavlink::dialect::MavSeverity::MAV_SEVERITY_WARNING,
                 text: "PreArm: Check GPS".into(),
+                ..STATUSTEXT_DATA::default()
             }),
             Instant::now(),
             42,

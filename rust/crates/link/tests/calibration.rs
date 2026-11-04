@@ -104,6 +104,7 @@ impl Vehicle {
         self.send(MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
             command,
             result,
+            ..COMMAND_ACK_DATA::default()
         }))
         .await;
     }

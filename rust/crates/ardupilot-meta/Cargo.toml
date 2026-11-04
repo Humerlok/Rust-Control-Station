@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+control-station-mavlink = { path = "../mavlink" }
+num-traits = "0.2"
 quick-xml = "0.42"
 flate2 = "1.1"
 ureq = "3"

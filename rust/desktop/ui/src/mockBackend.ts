@@ -8,6 +8,8 @@ import type {
   Telemetry,
 } from "./types";
 import { emptyLink, emptyTelemetry } from "./types";
+import { createInspectorMock } from "./mockInspector";
+import { createMissionMock } from "./mockMission";
 import { createPhase2Mock } from "./mockPhase2";
 
 const CENTER = { lat: -21.92, lon: -47.93 };
@@ -274,5 +276,7 @@ export function createMockBackend(): Backend {
     onLink: subscribe(listeners.link),
     onParamsProgress: phase2.onParamsProgress,
     onCalibration: phase2.onCalibration,
+    ...createInspectorMock(),
+    ...createMissionMock(),
   };
 }

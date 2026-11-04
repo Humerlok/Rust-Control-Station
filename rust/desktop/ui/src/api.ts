@@ -6,8 +6,13 @@ import type {
   CalibrationKind,
   CalibrationState,
   ConnectionConfig,
+  InspectorSnapshot,
   FieldInfo,
   LinkInfo,
+  MissionCommandInfo,
+  MissionItem,
+  MissionKind,
+  MissionProgress,
   ParamEntry,
   ParamMeta,
   ParamsProgress,
@@ -51,11 +56,23 @@ export interface Backend {
   calibrationCancel(): Promise<string>;
   radioCalibrationFinish(): Promise<string>;
   calibrationStatus(): Promise<CalibrationState>;
+  inspectorEnable(enabled: boolean): Promise<void>;
+  inspectorWatch(key: string): Promise<void>;
+  inspectorUnwatch(key: string): Promise<void>;
+  inspectorClear(): Promise<void>;
+  missionDownload(kind: MissionKind): Promise<MissionItem[]>;
+  missionUpload(kind: MissionKind, items: MissionItem[]): Promise<void>;
+  missionClear(kind: MissionKind): Promise<void>;
+  missionCommands(): Promise<MissionCommandInfo[]>;
+  missionParseFile(text: string): Promise<MissionItem[]>;
+  missionFormatFile(items: MissionItem[]): Promise<string>;
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
   onParamsProgress(cb: (p: ParamsProgress) => void): Promise<Unlisten>;
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
+  onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
+  onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
 }
 
 const subscribe =
@@ -95,11 +112,23 @@ const tauriBackend: Backend = {
   calibrationCancel: () => invoke("calibration_cancel"),
   radioCalibrationFinish: () => invoke("radio_calibration_finish"),
   calibrationStatus: () => invoke("calibration_status"),
+  inspectorEnable: (enabled) => invoke("inspector_enable", { enabled }),
+  inspectorWatch: (key) => invoke("inspector_watch", { key }),
+  inspectorUnwatch: (key) => invoke("inspector_unwatch", { key }),
+  inspectorClear: () => invoke("inspector_clear"),
+  missionDownload: (kind) => invoke("mission_download", { kind }),
+  missionUpload: (kind, items) => invoke("mission_upload", { kind, items }),
+  missionClear: (kind) => invoke("mission_clear", { kind }),
+  missionCommands: () => invoke("mission_commands"),
+  missionParseFile: (text) => invoke("mission_parse_file", { text }),
+  missionFormatFile: (items) => invoke("mission_format_file", { items }),
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
   onParamsProgress: subscribe<ParamsProgress>("params-progress"),
   onCalibration: subscribe<CalibrationState>("calibration"),
+  onInspector: subscribe<InspectorSnapshot>("inspector"),
+  onMissionProgress: subscribe<MissionProgress>("mission-progress"),
 };
 
 const useMock =

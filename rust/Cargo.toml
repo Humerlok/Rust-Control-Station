@@ -8,6 +8,7 @@ members = [
   "crates/dataflash",
   "crates/ardupilot-meta",
   "crates/params",
+  "crates/mission",
   "crates/link",
   "desktop/src-tauri",
 ]

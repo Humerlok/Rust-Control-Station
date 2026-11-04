@@ -126,3 +126,75 @@ export const idleCalibration: CalibrationState = {
   compass: [],
   radio: [],
 };
+
+// ---- Phase 3: MAVLink inspector ----
+
+export type InspectorValue = number | string | boolean | Array<number | string | boolean>;
+export type InspectorField = { name: string; value: InspectorValue };
+export type InspectorMessage = {
+  systemId: number;
+  componentId: number;
+  componentName: string;
+  messageId: number;
+  name: string;
+  count: number;
+  hz: number;
+  bytesPerSecond: number;
+  ageMs: number;
+  fields: InspectorField[];
+};
+/** [timeMs since the inspector was enabled, value] */
+export type InspectorPoint = [number, number];
+export type InspectorSnapshot = {
+  messages: InspectorMessage[];
+  /** New points since the previous snapshot, keyed by watch key (see inspectorKey). */
+  series: Record<string, InspectorPoint[]>;
+};
+
+/** Watch key: `${systemId}/${componentId}/${messageId}/${field}`, array elements as `field[3]`. */
+export const inspectorKey = (m: { systemId: number; componentId: number; messageId: number }, field: string) =>
+  `${m.systemId}/${m.componentId}/${m.messageId}/${field}`;
+
+// ---- Phase 3: missions ----
+
+export type MissionKind = "mission" | "fence" | "rally";
+
+/** A MISSION_ITEM_INT in friendly units: x/y are degrees for global frames, z is metres. */
+export type MissionItem = {
+  seq: number;
+  /** MAV_FRAME number: 0 global (absolute), 3 relative to home, 10 terrain. */
+  frame: number;
+  /** MAV_CMD number. */
+  command: number;
+  param1: number;
+  param2: number;
+  param3: number;
+  param4: number;
+  x: number;
+  y: number;
+  z: number;
+  autocontinue: boolean;
+};
+
+/** Labels of the grid columns for one command; null means the field is unused by the command. */
+export type MissionCommandInfo = {
+  id: number;
+  name: string;
+  description: string;
+  p1: string | null;
+  p2: string | null;
+  p3: string | null;
+  p4: string | null;
+  x: string | null;
+  y: string | null;
+  z: string | null;
+};
+
+export type MissionProgress = {
+  kind: MissionKind;
+  phase: "download" | "upload";
+  done: number;
+  total: number;
+  finished: boolean;
+  error: string | null;
+};

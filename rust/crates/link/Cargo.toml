@@ -8,6 +8,7 @@ license.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 tokio.workspace = true
+serde_json = { workspace = true, features = ["preserve_order"] }
 control-station-mavlink = { path = "../mavlink" }
 control-station-transport = { path = "../transport" }
 control-station-vehicle-state = { path = "../vehicle-state" }
@@ -15,6 +16,8 @@ control-station-ardupilot-meta = { path = "../ardupilot-meta" }
 control-station-commands = { path = "../commands" }
 control-station-dataflash = { path = "../dataflash" }
 control-station-params = { path = "../params" }
+control-station-mission = { path = "../mission" }
+num-traits = "0.2"
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -84,7 +84,11 @@ impl FakeVehicle {
                         _ => None,
                     };
                     if let (Some(command), Some(result)) = (command, reply) {
-                        let ack = MavMessage::COMMAND_ACK(COMMAND_ACK_DATA { command, result });
+                        let ack = MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
+                            command,
+                            result,
+                            ..COMMAND_ACK_DATA::default()
+                        });
                         rx_socket.send_to(&frame(ack), &target).await.ok();
                     }
                 }
@@ -124,6 +128,7 @@ fn statustext(text: &str) -> MavMessage {
     MavMessage::STATUSTEXT(STATUSTEXT_DATA {
         severity: MavSeverity::MAV_SEVERITY_WARNING,
         text: text.into(),
+        ..STATUSTEXT_DATA::default()
     })
 }
 

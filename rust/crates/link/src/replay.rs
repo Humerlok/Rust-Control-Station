@@ -29,6 +29,9 @@ use tokio::{
 
 use crate::types::LinkError;
 
+mod missions;
+use missions::ReplayMissions;
+
 #[derive(Debug, Clone)]
 enum Event {
     Attitude {
@@ -318,6 +321,7 @@ fn command_ack(command: control_station_mavlink::dialect::MavCmd) -> MavMessage 
     MavMessage::COMMAND_ACK(COMMAND_ACK_DATA {
         command,
         result: MavResult::MAV_RESULT_UNSUPPORTED,
+        ..COMMAND_ACK_DATA::default()
     })
 }
 
@@ -353,6 +357,19 @@ async fn run(
     // The log cannot obey commands (they get "unsupported"), but it serves and accepts
     // parameters so the whole parameter stack can be exercised without a drone.
     let params = Arc::new(Mutex::new(params));
+    // Missions, fences and rally points live in memory, starting with home where the log starts.
+    let home = events.iter().find_map(|timed| match &timed.event {
+        Event::Position {
+            lat,
+            lon,
+            alt,
+            relative,
+        } if *lat != 0.0 || *lon != 0.0 => {
+            Some(ReplayMissions::home_item(*lat, *lon, alt - relative))
+        }
+        _ => None,
+    });
+    let missions = Arc::new(Mutex::new(ReplayMissions::new(home)));
     let responder = {
         let sender = sender.clone();
         tokio::spawn(async move {
@@ -363,6 +380,15 @@ async fn run(
                     return;
                 }
                 for packet in parser.push(&buf[..n]) {
+                    let mission_replies = missions
+                        .lock()
+                        .expect("replay missions")
+                        .handle(&packet.message);
+                    for reply in mission_replies {
+                        if !sender.send(reply).await {
+                            return;
+                        }
+                    }
                     let reply = match packet.message {
                         MavMessage::COMMAND_LONG(c) => Some(command_ack(c.command)),
                         MavMessage::COMMAND_INT(c) => Some(command_ack(c.command)),
@@ -489,6 +515,7 @@ async fn run(
                         cog: u16::MAX,
                         fix_type: fix_type(*status),
                         satellites_visible: (*sats).clamp(0, 254) as u8,
+                        ..GPS_RAW_INT_DATA::default()
                     }),
                     MavMessage::VFR_HUD(VFR_HUD_DATA {
                         airspeed: *speed as f32,
@@ -515,6 +542,7 @@ async fn run(
             Event::Text(text) => vec![MavMessage::STATUSTEXT(STATUSTEXT_DATA {
                 severity: MavSeverity::MAV_SEVERITY_INFO,
                 text: truncate_text(text).as_str().into(),
+                ..STATUSTEXT_DATA::default()
             })],
         };
         for message in messages {

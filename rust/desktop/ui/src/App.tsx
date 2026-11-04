@@ -7,11 +7,13 @@ import { useLive } from "./useLive";
 import { Calibration } from "./views/Calibration";
 import { ExtendedTuning } from "./views/ExtendedTuning";
 import { FlightData } from "./views/FlightData";
+import { FlightPlan } from "./views/FlightPlan";
+import { Inspector } from "./views/Inspector";
 import { Parameters } from "./views/Parameters";
 import { Placeholder } from "./views/Placeholder";
 
 // Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
-const LIVE_VIEWS = ["flight-data", "calibration", "parameters", "ext-tuning"];
+const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "inspector"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -83,6 +85,12 @@ export function App() {
       <main className="content">
         <div className="view" hidden={view !== "flight-data"}>
           <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "flight-plan"}>
+          <FlightPlan telemetry={telemetry} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "inspector"}>
+          <Inspector active={view === "inspector"} notify={notify} />
         </div>
         <div className="view" hidden={view !== "calibration"}>
           <Calibration telemetry={telemetry} messages={messages} notify={notify} />

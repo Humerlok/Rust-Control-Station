@@ -1,14 +1,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
+mod inspector_cmds;
+mod mission_cmds;
 mod params_cmds;
 
 use std::sync::Arc;
 
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
-    CalibrationService, ConnectionConfig, LinkEvent, LinkInfo, LinkManager, ParamService,
-    ParamWriter, TelemetrySnapshot,
+    CalibrationService, ConnectionConfig, InspectorService, LinkEvent, LinkInfo, LinkManager,
+    MissionService, ParamService, ParamWriter, TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -144,6 +146,8 @@ fn main() {
     let mut events = link.subscribe();
     let params_link = link.clone();
     let calibration_link = link.clone();
+    let inspector_link = link.clone();
+    let mission_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
@@ -182,6 +186,46 @@ fn main() {
                         Ok(state) => {
                             if let Err(error) = calibration_handle.emit("calibration", state) {
                                 eprintln!("failed to emit calibration: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            let inspector = InspectorService::new(inspector_link);
+            let mut inspector_events = inspector.subscribe();
+            app.manage(inspector.clone());
+            let inspector_handle = handle.clone();
+            tauri::async_runtime::spawn(async move { inspector.run().await });
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match inspector_events.recv().await {
+                        Ok(snapshot) => {
+                            if let Err(error) = inspector_handle.emit("inspector", snapshot) {
+                                eprintln!("failed to emit inspector: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            let mission = MissionService::new(mission_link.clone());
+            let mut mission_progress = mission.subscribe_progress();
+            app.manage(mission_cmds::MissionState {
+                service: mission,
+                link: mission_link,
+            });
+            let mission_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match mission_progress.recv().await {
+                        Ok(p) => {
+                            if let Err(error) = mission_handle.emit("mission-progress", p) {
+                                eprintln!("failed to emit mission-progress: {error}");
                             }
                         }
                         Err(RecvError::Lagged(_)) => continue,
@@ -252,7 +296,17 @@ fn main() {
             calibration_cmds::calibration_compass_cancel,
             calibration_cmds::calibration_cancel,
             calibration_cmds::radio_calibration_finish,
-            calibration_cmds::calibration_status
+            calibration_cmds::calibration_status,
+            inspector_cmds::inspector_enable,
+            inspector_cmds::inspector_watch,
+            inspector_cmds::inspector_unwatch,
+            inspector_cmds::inspector_clear,
+            mission_cmds::mission_download,
+            mission_cmds::mission_upload,
+            mission_cmds::mission_clear,
+            mission_cmds::mission_commands,
+            mission_cmds::mission_parse_file,
+            mission_cmds::mission_format_file
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop application");

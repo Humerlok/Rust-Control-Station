@@ -7,4 +7,4 @@ license.workspace = true
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
-mavlink = { version = "0.21", default-features = false, features = ["std", "dialect-ardupilotmega", "dialect-common", "format-generated-code", "serde", "tokio"] }
+mavlink = { version = "0.21", default-features = false, features = ["std", "dialect-ardupilotmega", "dialect-common", "format-generated-code", "serde", "tokio", "mav2-message-extensions"] }
