@@ -1,0 +1,19 @@
+[package]
+name = "control-station-link"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+tokio.workspace = true
+control-station-mavlink = { path = "../mavlink" }
+control-station-transport = { path = "../transport" }
+control-station-vehicle-state = { path = "../vehicle-state" }
+control-station-ardupilot-meta = { path = "../ardupilot-meta" }
+control-station-commands = { path = "../commands" }
+control-station-dataflash = { path = "../dataflash" }
+
+[dev-dependencies]
+serde_json.workspace = true

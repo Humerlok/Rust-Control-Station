@@ -48,3 +48,6 @@ obj3/
 
 /.claude/settings.local.json
 /CLAUDE.md
+
+# Flight logs and telemetry samples (large, never commit)
+/exemplos/

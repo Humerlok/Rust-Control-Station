@@ -1,0 +1,86 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { isMockBackend } from "./api";
+import { ConnectBar } from "./components/ConnectBar";
+import { RebootButton } from "./components/RebootButton";
+import { useLive } from "./useLive";
+import { FlightData } from "./views/FlightData";
+import { Placeholder } from "./views/Placeholder";
+
+type NavItem = { id: string; label: string };
+const NAV: Array<{ group: string; items: NavItem[] }> = [
+  { group: "Flight", items: [{ id: "flight-data", label: "Flight Data" }, { id: "flight-plan", label: "Flight Plan" }] },
+  { group: "Setup", items: [{ id: "calibration", label: "Calibration" }, { id: "firmware", label: "Firmware" }] },
+  {
+    group: "Config",
+    items: [
+      { id: "parameters", label: "Parameters" },
+      { id: "ext-tuning", label: "Extended Tuning" },
+      { id: "mavftp", label: "MAVFTP" },
+    ],
+  },
+  { group: "Tools", items: [{ id: "inspector", label: "Inspector" }] },
+];
+
+type Toast = { text: string; ok: boolean; id: number };
+
+export function App() {
+  const { telemetry, link, messages, clearMessages } = useLive();
+  const [view, setView] = useState("flight-data");
+  const [toast, setToast] = useState<Toast | null>(null);
+  const toastId = useRef(0);
+
+  const notify = useCallback((text: string, ok: boolean) => {
+    toastId.current += 1;
+    setToast({ text, ok, id: toastId.current });
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const label = NAV.flatMap((g) => g.items).find((i) => i.id === view)?.label ?? "";
+  const connected = link.state === "connected" && telemetry.connected;
+
+  return (
+    <div className="shell">
+      <header className="topbar">
+        <div className="brand">
+          <span>ARDUPILOT</span>
+          <strong>Control Station</strong>
+        </div>
+        <ConnectBar link={link} telemetry={telemetry} />
+        <div className="spacer" />
+        {isMockBackend && <span className="badge warn" title="No Tauri backend: showing simulated data">SIMULATED</span>}
+        <RebootButton connected={connected} armed={telemetry.armed} notify={notify} />
+      </header>
+
+      <nav className="nav" aria-label="Screens">
+        {NAV.map((group) => (
+          <div key={group.group}>
+            <div className="group">{group.group}</div>
+            {group.items.map((item) => (
+              <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}>
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      <main className="content">
+        <div className="view" hidden={view !== "flight-data"}>
+          <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} />
+        </div>
+        {view !== "flight-data" && <Placeholder title={label} />}
+      </main>
+
+      {toast && (
+        <div key={toast.id} className={`toast ${toast.ok ? "" : "err"}`} role="status">
+          {toast.text}
+        </div>
+      )}
+    </div>
+  );
+}

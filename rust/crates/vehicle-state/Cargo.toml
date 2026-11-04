@@ -6,3 +6,5 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
+control-station-mavlink = { path = "../mavlink" }
+control-station-ardupilot-meta = { path = "../ardupilot-meta" }

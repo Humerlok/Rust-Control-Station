@@ -10,6 +10,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde.workspace = true
-control-station-vehicle-state = { path = "../../crates/vehicle-state" }
+tokio.workspace = true
+control-station-link = { path = "../../crates/link" }
 control-station-commands = { path = "../../crates/commands" }
-control-station-map-cache = { path = "../../crates/map-cache" }
+control-station-transport = { path = "../../crates/transport" }
+control-station-vehicle-state = { path = "../../crates/vehicle-state" }

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Lets the main window listen to events emitted by the Rust backend.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}

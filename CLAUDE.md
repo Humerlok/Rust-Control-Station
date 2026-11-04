@@ -4,120 +4,169 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Mission Planner is the ArduPilot Ground Control Station (GCS): a large C# / .NET Framework
-Windows Forms desktop application for configuring, flashing, planning missions for, and
-monitoring ArduPilot/PX4 vehicles over the MAVLink protocol. The same source also targets
-Android (Xamarin) and macOS/iOS via a cross-platform library build.
+This repository contains two codebases: the **legacy Mission Planner** (ArduPilot's C#/.NET
+Framework WinForms GCS) and a **new Rust Control Station** being built in `rust/` to replace it.
+The legacy app is the behavioral reference; new feature work goes in Rust.
 
-## Build & run
+Mission Planner configures, flashes, plans missions for, and monitors ArduPilot/PX4 vehicles
+over MAVLink. The same C# source also targets Android (Xamarin) and macOS/iOS via a
+cross-platform library build.
 
-Building is **Windows + Visual Studio 2022 + MSBuild only**. There is no supported build on
-Linux/macOS (those platforms only *run* the prebuilt binaries via Mono). Do not expect to
-compile this repo in a Linux container.
+## Rust Control Station (`rust/`)
+
+### Build & run
+
+Requires Rust stable toolchain and Node 20+. Run from `rust/`:
+
+```powershell
+cargo fmt --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+Desktop app (Tauri 2 + React + Vite):
+
+```powershell
+cd rust/desktop/ui
+npm ci
+npm run build          # typecheck + vite build
+npm run tauri          # launch desktop app (runs from ../src-tauri)
+```
+
+If the Tauri CLI can't find `tauri.conf.json`, run directly from `rust/desktop/src-tauri`:
+```powershell
+../ui/node_modules/.bin/tauri dev
+```
+
+### Workspace layout
+
+```
+rust/
+  crates/
+    mavlink/         — wraps the `mavlink` crate (ardupilotmega dialect): incremental v1/v2 Parser with CRC, encode()
+    transport/       — open(Endpoint) -> Connection with split reader/writer: serial, TCP, UDP, UDPCl, WebSocket
+    vehicle-state/   — VehicleState::apply(MavMessage), the named numeric FIELDS used by Quick View
+    ardupilot-meta/  — VehicleType (from MAV_TYPE) and per-vehicle flight-mode tables
+    commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list); Parameter/calibration types (Phase 2)
+    dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
+    link/            — LinkManager: one connection, vehicles, stats, ACK-checked commands, AUTO serial scan, log Replay
+    map-cache/       — TileProvider, OfflineRegion, download policy validation
+  desktop/
+    src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
+    ui/              — React + TypeScript + Vite; Nord theme; src/api.ts is the only place that calls invoke/listen
+```
+
+Domain crates must stay independent of Tauri and React. Tauri commands translate UI
+requests into domain calls; React must not own protocol logic.
+
+The JSON contract between `link` and the UI is camelCase and pinned by tests in
+`crates/link/src/types.rs`; `ui/src/types.ts` and `ui/src/mockBackend.ts` mirror it. Tauri 2 denies
+event listening unless `src-tauri/capabilities/default.json` grants it; adding a capability file
+needs a rebuild that `tauri dev` does not trigger by itself (touch `src/main.rs`).
+
+### Running without a drone
+
+Connect type "Replay (log)" plays `exemplos/Teste 02 - tunning.BIN` (relative paths are also tried
+from parent directories). The replay answers every command with "unsupported". `exemplos/` is
+git-ignored: logs are large and are telemetry.
+
+### Current limitations
+
+Phase 1 is done (connect, Flight Data, actions, reboot). Parameters, calibration, Extended Tuning,
+MAVFTP, Inspector, mission planning and firmware are placeholders (see HANDOFF.md). Serial, AUTO
+scan, WebSocket and real-vehicle command flows are covered only by loopback tests, not by hardware.
+
+### CI
+
+`.github/workflows/rust-control-station.yml` runs on push/PR when `rust/` or `AGENTS.md`
+changes: `cargo fmt --check`, `cargo clippy`, `cargo test`, plus `npm install && npm run build`
+for the UI, on both Windows and Ubuntu.
+
+### Style & rules
+
+- Rust 2021 edition, `rustfmt`, Clippy-clean (`-D warnings`).
+- `snake_case` for modules/functions, `PascalCase` for types.
+- Explicit domain types — not UI-shaped JSON.
+- Use a configured/self-hosted tile provider for offline maps. **Never prefetch from
+  `tile.openstreetmap.org`**; show required map attribution in the UI.
+- Tests go alongside modules; cross-crate tests under each crate's `tests/`. Use loopback
+  UDP/TCP or fakes for transport tests; hardware/SITL tests must be opt-in.
+- Commit messages: concise imperative subject with area prefix (`desktop: add connection status`).
+
+## Legacy C# Mission Planner
+
+### Build & run
+
+Windows + Visual Studio 2022 + MSBuild only. No Linux/macOS build support.
 
 ```bat
-git submodule update --init          :: required once; pulls ExtLibs/mono and others
+git submodule update --init
 .nuget\nuget.exe restore MissionPlanner.sln
 msbuild -v:m -restore -t:Build -p:Configuration=Release MissionPlanner.sln
 ```
 
-- The main app is built from **`MissionPlanner.sln`** → `MissionPlanner.csproj` (`net472`, `Exe`).
-- Output goes to **`bin\Release\net461\`** (or `bin\Debug\net461\`) — the `net461` folder name is
-  intentional (`AppendTargetFrameworkToOutputPath=false`), it is *not* a separate target.
-- `build.bat`, `build - debug.bat`, `build - Clean.bat` are the maintainer's local build scripts
-  (they also do appx packaging/signing/rsync — not needed for plain builds).
-- To import the exact VS workload/component set, use `vs2022.vsconfig` (or `vs2019`/`vs2026`).
+- Output: `bin\Release\net461\` (the `net461` folder name is intentional, not a separate target).
+- `build.bat` / `build - debug.bat` / `build - Clean.bat` are maintainer scripts (packaging/signing).
+- Import VS workloads via `vs2022.vsconfig`.
 
 ### Cross-platform library build (Android / Mac)
 
-`MissionPlannerLib.csproj` (`netstandard2.0`, `library`) recompiles the same sources with
-`DefineConstants=...;LIB`. Android packaging is done via `build - Lib.ps1` and
-`ExtLibs/Xamarin/Xamarin.Android`. See the `LIB` conditional-compilation note below — it is the
-single most important thing to understand before touching shared code.
+`MissionPlannerLib.csproj` (`netstandard2.0`) recompiles with `DefineConstants=...;LIB`.
+Android packaging via `build - Lib.ps1` and `ExtLibs/Xamarin/Xamarin.Android`.
+
+### Tests
+
+`MissionPlannerTests/` — MSTest project (`net472`). CI runs MAVLink regression tests
+(`Sysid32Tests`) but not the full suite.
+
+```bat
+vstest.console.exe bin\Release\net461\MissionPlannerTests.dll
+vstest.console.exe MissionPlannerTests.dll /Tests:DetectBoardTest   :: single test
+```
 
 ### CI
 
-GitHub Actions (`.github/workflows/main.yml` = "DotNet Build", plus `android.yml`, `mac.yml`)
-build on Windows with MSBuild. CI builds the solution and zips `bin/Release/net461`; tagging
-`beta` publishes a release.
+`.github/workflows/main.yml` ("DotNet Build") plus `android.yml`, `mac.yml`. Builds on
+Windows with MSBuild; tagging `beta` publishes a release.
 
-## Tests
+## Architecture (legacy C# — behavioral reference)
 
-`MissionPlannerTests/` is an MSTest project (`MSTest.TestFramework` 2.2.10, `net472`) that
-references the main projects. Tests use `[TestClass]` / `[TestMethod]` and `Assert`.
+Dependency flow: **transport → protocol → vehicle state → UI**.
 
-```bat
-:: build then run via the VS Test Explorer, or:
-vstest.console.exe bin\Release\net461\MissionPlannerTests.dll
-:: single test:
-vstest.console.exe MissionPlannerTests.dll /Tests:DetectBoardTest
-```
+- **`Program.cs`** — entry point and crash handling.
+- **`MainV2.cs`** — main Form, central hub. Owns `MainV2.comPort` (`MAVLinkInterface`), hosts
+  menu, swaps `GCSViews` screens. ~190 KB — navigate by symbol.
+- **`GCSViews/`** — top-level screens: `FlightData`, `FlightPlanner`, `InitialSetup`,
+  `ConfigurationView`, `SITL`, `Help`.
 
-Coverage is light and focused on pure logic (board detection, firmware parsing, downloads). CI
-build pipelines do not run the test suite (`test: off`). When adding tests, mirror the existing
-folder layout (`MissionPlannerTests/Utilities`, `/GCSViews`, ...).
+### Connection & telemetry stack (`ExtLibs/`)
 
-## Architecture (the big picture)
+- **`ExtLibs/Comms/`** — transport layer (`ICommsSerial`): serial, TCP, UDP, BLE, NTRIP.
+- **`ExtLibs/Mavlink/`** — MAVLink protocol: generated message structs, `MavlinkParse`, CRC.
+- **`ExtLibs/ArduPilot/Mavlink/`** — live link: `MAVLinkInterface` (packet I/O, params,
+  missions), `MAVState` (per-vehicle state + `CurrentState`), `MAVList` (multi-vehicle).
+- **`ExtLibs/ArduPilot/CurrentState.cs`** — decoded telemetry model. UI binds to
+  `MainV2.comPort.MAV.cs`.
 
-The dependency flow is: **transport → protocol → vehicle state → UI**.
-
-- **`Program.cs`** — process entry point and crash/exception handling.
-- **`MainV2.cs`** — the main `Form` and central hub. It owns the active connection as the static
-  `MainV2.comPort` (a `MAVLinkInterface`), hosts the menu, and swaps the `GCSViews` screens in and
-  out of the main window. Most global state hangs off `MainV2`. This file is ~190 KB; navigate by
-  symbol, don't read top-to-bottom.
-- **`GCSViews/`** — the top-level screens the menu switches between: `FlightData` (HUD/telemetry/
-  map), `FlightPlanner` (waypoint/mission editor), `InitialSetup`, `ConfigurationView` (Config/
-  Tuning + the many `Config*.cs` sub-panels), `SITL`, `Help`.
-
-### Connection & telemetry stack (in `ExtLibs/`)
-
-- **`ExtLibs/Comms/`** — transport layer implementing `ICommsSerial`: `CommsSerialPort`,
-  `CommsTCP`, `CommsUDP`, `CommsBLE`, `CommsNTRIP`, etc. Pick a transport, hand it to the interface.
-- **`ExtLibs/Mavlink/` (`MAVLink.csproj`)** — the MAVLink protocol: generated message structs,
-  `MavlinkParse` (frame parse/serialize), CRC. Largely machine-generated.
-- **`ExtLibs/ArduPilot/Mavlink/`** — the live link logic:
-  - `MAVLinkInterface` (`: MAVLink, IMAVLinkInterface`) — reads/writes packets over a transport,
-    exposes high-level operations (get/set params, mission up/download, command_long, etc.).
-  - `MAVState` — represents a single connected vehicle (sysid/compid) and holds `cs`, its
-    `CurrentState`. `MAVList` tracks multiple vehicles on one link.
-  - `CurrentState` (`ExtLibs/ArduPilot/CurrentState.cs`) — the decoded, UI-facing telemetry model
-    (attitude, position, battery, mode...). Forms/controls bind to `MainV2.comPort.MAV.cs`.
-- **`ExtLibs/ArduPilot/`** — the vehicle/domain layer beyond telemetry: firmware
-  (`APFirmware`, `Firmwares`), geofences, `BoardDetect`, mission packing.
-
-### Other notable `ExtLibs/` (each is its own csproj; there are ~90)
-
-`Controls/` (custom WinForms controls), `Core/` + `Interfaces/` (shared primitives, the
-`ServiceLocator` DI registry, `ICommsSerial`), `Maps/` + `GMap.NET.*` (mapping), `GDAL`/`ProjNet`/
-`SharpKml` (geo/projection/KML), `DroneCAN`/`UAVCANFlasher`, `Comms`, plus many vendored DLLs.
-The solution has ~93 projects; treat `ExtLibs/` as the bulk of the real functionality.
+The solution has ~93 projects; `ExtLibs/` is the bulk of functionality. Notable: `Controls/`,
+`Core/` + `Interfaces/`, `Maps/` + `GMap.NET.*`, `GDAL`/`ProjNet`/`SharpKml`, `DroneCAN`.
 
 ### Plugins & scripting
 
-- **`Plugin/`** (`Plugin` base class + `PluginLoader`) and **`Plugins/`** (built-in plugins plus
-  `exampleNN-*.cs` templates) — plugins are loaded at runtime to extend the UI/behavior.
-- **`Script.cs` + `Scripts/`** — IronPython scripting host exposed to users (`cs`, `Script.*` API).
+- `Plugin/` + `Plugins/` — runtime plugin system (`Plugin` base class, `PluginLoader`).
+- `Script.cs` + `Scripts/` — IronPython scripting host.
 
-## Conventions & gotchas
+## Conventions & gotchas (legacy C#)
 
-- **`LIB` conditional compilation is the #1 trap.** Shared code is compiled both into the desktop
-  `Exe` (full `System.Drawing` / `System.Windows.Forms`) and into the netstandard `LIB` build for
-  Android/Mac. You will see `extern alias Drawing;` guarded by `#if !LIB`, and `ZZZLibShims.cs`
-  provides cross-platform shims (e.g. `MissionPlanner.Drawing`) for the `LIB` build. When adding
-  code that touches drawing, WinForms, P/Invoke, or other desktop-only APIs, guard it with
-  `#if !LIB` or it will break the Android/Mac build.
-- **Localization.** Each Form has an English `Name.resx` (the source of truth) plus per-culture
-  siblings like `FlightData.ko-KR.resx`, `MainV2.zh-Hans.resx`. App strings go through `Strings.resx`
-  / the `L10N` class (`Strings.Culture` is set from the `language` setting). Translations are
-  managed via Crowdin (`crowdin.bat`) — **do not hand-edit the non-English `.resx`**; edit the
-  English resource and let translation flow back.
-- **WinForms file triplets.** A screen is `Foo.cs` (logic) + `Foo.Designer.cs` (generated layout) +
-  `Foo.resx` (embedded resources). Edit the `Designer.cs` through intent, not by hand where possible.
-- **`createproj.bat`** regenerates the `<Compile>`/`<EmbeddedResource>` item lists for the csproj by
-  scanning the tree — useful when files are added/removed but kept out of sync with the project.
-- **`ServiceLocator`** (`ExtLibs/Interfaces/ServiceLocator.cs`) is the lightweight DI used to inject
-  platform-specific implementations (resolve with `ServiceLocator.Get<T>()`).
-- **`.editorconfig`** intentionally downgrades many `CAxxxx` analyzer rules to suggestion/silent —
-  don't treat those as actionable warnings.
-- **`Resources/`** holds icons/images; themes are `*.mpsystheme` files driven by `ThemeManager.cs`.
+- **`LIB` conditional compilation is the #1 trap.** Code compiles as both desktop `Exe` and
+  `netstandard2.0` library. Desktop-only APIs (`System.Drawing`, WinForms, P/Invoke) must be
+  guarded with `#if !LIB` or the Android/Mac build breaks. `extern alias Drawing;` is guarded
+  by `#if !LIB`; `ZZZLibShims.cs` provides cross-platform shims.
+- **Localization.** English `.resx` is source of truth. **Do not hand-edit non-English `.resx`** —
+  translations flow back via Crowdin. App strings use `Strings.resx` / `L10N` class.
+- **WinForms file triplets.** `Foo.cs` (logic) + `Foo.Designer.cs` (generated layout) + `Foo.resx`.
+- **`createproj.bat`** regenerates `<Compile>`/`<EmbeddedResource>` item lists when files change.
+- **`ServiceLocator`** (`ExtLibs/Interfaces/ServiceLocator.cs`) — lightweight DI, resolve with
+  `ServiceLocator.Get<T>()`.
+- **`.editorconfig`** downgrades many `CAxxxx` rules to suggestion/silent — don't treat as warnings.
+- Do not add Rust dependencies to the C# projects.

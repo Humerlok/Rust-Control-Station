@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
-thiserror.workspace = true
+control-station-mavlink = { path = "../mavlink" }
+control-station-ardupilot-meta = { path = "../ardupilot-meta" }
 control-station-vehicle-state = { path = "../vehicle-state" }

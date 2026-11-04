@@ -3,7 +3,7 @@
   "productName": "Rust Control Station",
   "version": "0.1.0",
   "identifier": "org.ardupilot.rust-control-station",
-  "build": { "frontendDist": "../ui/dist", "devUrl": "http://localhost:5173", "beforeDevCommand": "npm --prefix ../ui run dev", "beforeBuildCommand": "npm --prefix ../ui run build" },
+  "build": { "frontendDist": "../ui/dist", "devUrl": "http://localhost:5173", "beforeDevCommand": "npm --prefix ui run dev", "beforeBuildCommand": "npm --prefix ui run build" },
   "app": { "windows": [{ "title": "Rust Control Station", "width": 1440, "height": 900, "minWidth": 1080, "minHeight": 680 }] },
   "bundle": {
     "active": true,

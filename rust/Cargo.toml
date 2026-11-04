@@ -5,6 +5,9 @@ members = [
   "crates/vehicle-state",
   "crates/commands",
   "crates/map-cache",
+  "crates/dataflash",
+  "crates/ardupilot-meta",
+  "crates/link",
   "desktop/src-tauri",
 ]
 resolver = "2"
