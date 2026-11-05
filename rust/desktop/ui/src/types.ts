@@ -127,6 +127,52 @@ export const idleCalibration: CalibrationState = {
   radio: [],
 };
 
+// ---- Phase 5: motor test ----
+
+export type MotorThrottleType = "percent" | "pwm" | "pilot";
+export type SpinParam = "arm" | "min";
+
+export type MotorTestRequest = {
+  /** 1-based position in the test order (motor A is 1). Ignored by "all" and "sequence". */
+  motor: number;
+  throttleType: MotorThrottleType;
+  /** Percent, or microseconds for PWM; unused for "pilot". */
+  throttle: number;
+  seconds: number;
+  /** The user confirmed a throttle above 20 %. */
+  allowHigh: boolean;
+};
+
+export type MotorSlot = {
+  label: string;
+  testOrder: number;
+  output: number | null;
+  rotation: string | null;
+};
+
+export type MotorFrame = {
+  known: boolean;
+  className: string | null;
+  typeName: string | null;
+  motors: MotorSlot[];
+};
+
+export type EscReading = {
+  index: number;
+  rpm: number | null;
+  voltage: number | null;
+  current: number | null;
+  temperature: number | null;
+};
+
+export type MotorTestState = {
+  escs: EscReading[];
+  running: boolean;
+  message: string;
+};
+
+export const idleMotorTest: MotorTestState = { escs: [], running: false, message: "" };
+
 // ---- Phase 3: MAVLink inspector ----
 
 export type InspectorValue = number | string | boolean | Array<number | string | boolean>;

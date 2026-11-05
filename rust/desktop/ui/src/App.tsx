@@ -11,16 +11,24 @@ import { FlightPlan } from "./views/FlightPlan";
 import { Inspector } from "./views/Inspector";
 import { Firmware } from "./views/Firmware";
 import { MavFtp } from "./views/MavFtp";
+import { MotorTest } from "./views/MotorTest";
 import { Parameters } from "./views/Parameters";
 import { Placeholder } from "./views/Placeholder";
 
 // Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
-const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware"];
+const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware", "motor-test"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
   { group: "Flight", items: [{ id: "flight-data", label: "Flight Data" }, { id: "flight-plan", label: "Flight Plan" }] },
-  { group: "Setup", items: [{ id: "calibration", label: "Calibration" }, { id: "firmware", label: "Firmware" }] },
+  {
+    group: "Setup",
+    items: [
+      { id: "calibration", label: "Calibration" },
+      { id: "motor-test", label: "Motor Test" },
+      { id: "firmware", label: "Firmware" },
+    ],
+  },
   {
     group: "Config",
     items: [
@@ -102,6 +110,9 @@ export function App() {
         </div>
         <div className="view" hidden={view !== "calibration"}>
           <Calibration telemetry={telemetry} messages={messages} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "motor-test"}>
+          <MotorTest telemetry={telemetry} active={view === "motor-test"} notify={notify} />
         </div>
         <div className="view" hidden={view !== "parameters"}>
           <Parameters notify={notify} />

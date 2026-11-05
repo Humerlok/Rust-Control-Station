@@ -21,11 +21,15 @@ import type {
   MissionItem,
   MissionKind,
   MissionProgress,
+  MotorFrame,
+  MotorTestRequest,
+  MotorTestState,
   ParamEntry,
   ParamMeta,
   ParamsProgress,
   ParsedParamFile,
   SerialPortInfo,
+  SpinParam,
   StatusText,
   Telemetry,
 } from "./types";
@@ -64,6 +68,16 @@ export interface Backend {
   calibrationCancel(): Promise<string>;
   radioCalibrationFinish(): Promise<string>;
   calibrationStatus(): Promise<CalibrationState>;
+  /** The motors to offer for the frame (FRAME_CLASS / FRAME_TYPE values, when known). */
+  motorFrame(frameClass: number | null, frameType: number | null): Promise<MotorFrame>;
+  motorStart(request: MotorTestRequest): Promise<string>;
+  motorStartAll(request: MotorTestRequest, count: number): Promise<string>;
+  motorStartSequence(request: MotorTestRequest, count: number): Promise<string>;
+  motorStopAll(count: number): Promise<string>;
+  motorSetSpin(which: SpinParam, percent: number): Promise<string>;
+  /** Streams ESC telemetry while the screen is open. */
+  motorWatchEsc(enabled: boolean): Promise<void>;
+  motorStatus(): Promise<MotorTestState>;
   inspectorEnable(enabled: boolean): Promise<void>;
   inspectorWatch(key: string): Promise<void>;
   inspectorUnwatch(key: string): Promise<void>;
@@ -99,6 +113,7 @@ export interface Backend {
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
   onParamsProgress(cb: (p: ParamsProgress) => void): Promise<Unlisten>;
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
+  onMotorTest(cb: (s: MotorTestState) => void): Promise<Unlisten>;
   onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
   onFtpProgress(cb: (progress: FtpProgress) => void): Promise<Unlisten>;
@@ -142,6 +157,14 @@ const tauriBackend: Backend = {
   calibrationCancel: () => invoke("calibration_cancel"),
   radioCalibrationFinish: () => invoke("radio_calibration_finish"),
   calibrationStatus: () => invoke("calibration_status"),
+  motorFrame: (frameClass, frameType) => invoke("motor_frame", { class: frameClass, frameType }),
+  motorStart: (request) => invoke("motor_start", { request }),
+  motorStartAll: (request, count) => invoke("motor_start_all", { request, count }),
+  motorStartSequence: (request, count) => invoke("motor_start_sequence", { request, count }),
+  motorStopAll: (count) => invoke("motor_stop_all", { count }),
+  motorSetSpin: (which, percent) => invoke("motor_set_spin", { which, percent }),
+  motorWatchEsc: (enabled) => invoke("motor_watch_esc", { enabled }),
+  motorStatus: () => invoke("motor_status"),
   inspectorEnable: (enabled) => invoke("inspector_enable", { enabled }),
   inspectorWatch: (key) => invoke("inspector_watch", { key }),
   inspectorUnwatch: (key) => invoke("inspector_unwatch", { key }),
@@ -174,6 +197,7 @@ const tauriBackend: Backend = {
   onLink: subscribe<LinkInfo>("link"),
   onParamsProgress: subscribe<ParamsProgress>("params-progress"),
   onCalibration: subscribe<CalibrationState>("calibration"),
+  onMotorTest: subscribe<MotorTestState>("motor-test"),
   onInspector: subscribe<InspectorSnapshot>("inspector"),
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
   onFtpProgress: subscribe<FtpProgress>("ftp-progress"),

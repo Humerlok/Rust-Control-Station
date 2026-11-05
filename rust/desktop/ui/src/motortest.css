@@ -1,0 +1,21 @@
+/* ---- Phase 5: motor test ---- */
+.motor-view { height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.motor-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.stop-all { min-width: 230px; height: 44px; font-size: 15px; font-weight: 700; letter-spacing: 0.04em; border-width: 2px; }
+.motor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+.motor-card > header h2 { margin: 0; }
+.motor-body { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+.motor-body p { margin: 0; }
+.motor-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.motor-controls label, .spin-row label { display: flex; flex-direction: column; gap: 3px; color: var(--text); }
+.motor-buttons { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 6px; }
+.motor-buttons button { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; }
+.motor-buttons button small { color: var(--text-dim); }
+.motor-actions { flex-wrap: wrap; }
+.motor-actions > button { flex: 0 1 auto; }
+.motor-note { overflow-wrap: anywhere; font-size: 12px; }
+.spin-row { display: flex; align-items: flex-end; gap: 8px; }
+.spin-row label { flex: 1; }
+.esc-table { width: 100%; border-collapse: collapse; }
+.esc-table th { text-align: left; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.esc-table td { padding: 3px 6px; border-bottom: 1px solid rgba(76, 86, 106, 0.4); }

@@ -108,6 +108,73 @@ pub fn reboot_to_bootloader(target: VehicleId) -> MavMessage {
     )
 }
 
+/// `MAV_CMD_SET_MESSAGE_INTERVAL`: stream one message every `interval_us` microseconds;
+/// 0 restores the vehicle's own rate and -1 stops the message.
+pub fn set_message_interval(target: VehicleId, message_id: u32, interval_us: i32) -> MavMessage {
+    command_long(
+        target,
+        MavCmd::MAV_CMD_SET_MESSAGE_INTERVAL,
+        [
+            message_id as f32,
+            interval_us as f32,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ],
+    )
+}
+
+/// What the throttle value of `MAV_CMD_DO_MOTOR_TEST` means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MotorThrottleType {
+    /// 0..100 % of the motor range.
+    Percent,
+    /// A PWM pulse in microseconds.
+    Pwm,
+    /// The pilot's throttle stick passes straight through.
+    Pilot,
+}
+
+impl MotorThrottleType {
+    fn code(self) -> f32 {
+        match self {
+            Self::Percent => 0.0,
+            Self::Pwm => 1.0,
+            Self::Pilot => 2.0,
+        }
+    }
+}
+
+/// `MAV_CMD_DO_MOTOR_TEST`: spin `motor` (1-based position in the test order, so motor A is 1)
+/// for `seconds`. With `count > 1` the autopilot runs the whole sequence itself and `seconds`
+/// becomes the delay between motors; `count == 0` tests that single motor. Throttle 0 with
+/// duration 0 stops it.
+pub fn motor_test(
+    target: VehicleId,
+    motor: u8,
+    throttle_type: MotorThrottleType,
+    throttle: f32,
+    seconds: f32,
+    count: u8,
+) -> MavMessage {
+    command_long(
+        target,
+        MavCmd::MAV_CMD_DO_MOTOR_TEST,
+        [
+            f32::from(motor),
+            throttle_type.code(),
+            throttle,
+            seconds,
+            f32::from(count),
+            0.0, // MOTOR_TEST_ORDER_DEFAULT: motor numbers follow the test order (A, B, C...)
+            0.0,
+        ],
+    )
+}
+
 pub fn mission_set_current(target: VehicleId, seq: u16) -> MavMessage {
     MavMessage::MISSION_SET_CURRENT(MISSION_SET_CURRENT_DATA {
         seq,
@@ -324,6 +391,27 @@ mod tests {
         let c = long(&msg);
         assert_eq!(c.command, MavCmd::MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN);
         assert_eq!(c.param1, 3.0);
+    }
+
+    #[test]
+    fn motor_test_packs_the_do_motor_test_parameters() {
+        let msg = motor_test(TARGET, 3, MotorThrottleType::Percent, 7.5, 2.0, 0);
+        let c = long(&msg);
+        assert_eq!(c.command, MavCmd::MAV_CMD_DO_MOTOR_TEST);
+        assert_eq!((c.param1, c.param2, c.param3), (3.0, 0.0, 7.5));
+        assert_eq!((c.param4, c.param5, c.param6), (2.0, 0.0, 0.0));
+        let pwm = motor_test(TARGET, 1, MotorThrottleType::Pwm, 1100.0, 1.0, 4);
+        assert_eq!((long(&pwm).param2, long(&pwm).param5), (1.0, 4.0));
+        let pilot = motor_test(TARGET, 1, MotorThrottleType::Pilot, 0.0, 1.0, 0);
+        assert_eq!(long(&pilot).param2, 2.0);
+    }
+
+    #[test]
+    fn message_interval_carries_id_and_period() {
+        let msg = set_message_interval(TARGET, 11030, 250_000);
+        let c = long(&msg);
+        assert_eq!(c.command, MavCmd::MAV_CMD_SET_MESSAGE_INTERVAL);
+        assert_eq!((c.param1, c.param2), (11030.0, 250_000.0));
     }
 
     #[test]

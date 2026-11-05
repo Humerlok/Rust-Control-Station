@@ -2,7 +2,7 @@
 
 ## Current state (2026-11-05)
 
-Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-3 are committed (`6535baf80`, `27fb0aa42`, `dc597b77b`). **Phase 4 is implemented: MAVFTP (4a) and Firmware (4b) are written and pass tests but are uncommitted; neither has been run against real hardware.** The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine; this section and "Next" below are what remains of it.
+Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are all committed: `6535baf80` (P1), `27fb0aa42` (P2), `dc597b77b` (P3), `286e407c8` (P4a MAVFTP) and `ad2b8063c` (P4b Firmware). Nothing is pushed. **Phase 4 was built on a Jetson Orin running Ubuntu, and the user tested it personally against a real Cube Orange.** The details of what worked or failed there were not recorded in the repo, so the "Not verified" lists below may be partly outdated (see "Hardware testing status"). The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine and has only 4 phases; there is no Phase 5 plan yet, see "Next".
 
 **Phase 4b, Firmware**:
 - `firmware` crate (pure): `manifest` (manifest.json.gz parse, `select` by board/vehicle/channel, `boards`, `is_trusted_url` = firmware.ardupilot.org only), `apj` (JSON + base64 + zlib image, padded to 4 bytes, size checks), `bootloader` (request bytes, status check, bootloader CRC32 and `crc32_pad`, `boards_compatible`; board 33 accepts fmuv2/9 images).
@@ -24,13 +24,30 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-3 are
 - Replay keeps an in-memory mission/fence/rally store and speaks the mission protocol; it was split into `link/src/replay/`.
 - The `mavlink` crate now has `mav2-message-extensions` (needed for `mission_type`); this added extension fields to some messages, so literals use `..Default::default()`.
 
+## Phase 5: Motor Test (implemented, uncommitted)
+
+- `commands::motor_test` (`MAV_CMD_DO_MOTOR_TEST`), `commands::set_message_interval`, `MotorThrottleType`.
+- `ardupilot-meta::motor_layout`: embedded `data/motor_layout.json` (copy of the legacy `APMotorLayout.json`, 75 frames) giving each motor's output number, test-order letter and CW/CCW; generic 4 motors (8 for non-copter/rover) when the frame is unknown.
+- `link::MotorTestService`: start one / all (one command per motor, like the legacy tool) / sequence (vehicle-run), `stop_all` (always allowed), `MOT_SPIN_ARM/MIN` writes (0-30 %), ESC telemetry (`ESC_TELEMETRY_*`, `ESC_STATUS`) with `watch_esc` asking the vehicle to stream it while the screen is open. Rules enforced in Rust: disarmed only, throttle 0-100 % with >20 % needing `allowHigh`, duration 1-120 s, one test at a time.
+- Desktop: `motor_*` commands, `motor-test` event; UI `views/MotorTest.tsx` (Setup > Motor Test) with a props-off confirmation, confirmation of throttle changes above 10 %, always-enabled STOP ALL, per-motor buttons, ESC table, spin thresholds. `mockMotor.ts` backs `?mock=1`.
+- Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
+
+## Next planned: Phase 6 DroneCAN
+
+See the plan file: MAVLink CAN forward transport, data-driven DSDL stack in a new `dronecan` crate, nodes/params/restart (6a), node firmware update + dynamic node allocation (6b), DroneCAN Inspector (6c).
+
 ## Verified
 
 - `npm run lint` works: ESLint was never a project dependency (the script fell through to an unrelated global 6.4 with no config). Added `eslint@9`, `typescript-eslint`, `eslint-plugin-react-hooks` and `eslint.config.js` (flat config; unused vars are errors unless prefixed `_`). The whole `src` tree passes clean, and a planted unused variable is reported.
 - `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (all pass), `npm run build`. MAVFTP: 15 loopback tests against a fake vehicle with an in-memory FS (lost burst chunk, no-burst firmware, old firmware without timed listing, corrupted upload caught by CRC, cancel, busy, silent vehicle), 3 Replay server unit tests, 3 `param.pck` decoder tests and 2 fast-parameter tests (success, and fallback that is not retried). The MAVFTP mock was exercised in Node; the screen itself was **not** opened in a browser or the Tauri window (no display on the machine used), so layout and clicks are untested.
 - The real Tauri window was driven over CDP with the Replay of the sample log: Inspector showed 6-8 message types with Hz/B/s/counts, decoded fields and a live graph with roll/pitch/yaw; the watched `roll` series returned 118 points in 3 s and a malformed key returned a clear error. Missions: catalog of 52 commands with labels, an upload of 5 items followed by a download returned identical items, `.waypoints` format/parse worked and a bad file gave a clear error, a fence upload and a clear worked. The Flight Plan screen read the 5 items from the "vehicle", drew waypoints and path on the Esri map and showed the grid with computed distance/azimuth/gradient.
 
-## Not verified (needs the real drone)
+## Hardware testing status
+
+- 2026-11-05, Windows: after the Phase 4 commits, `cargo fmt --check` and `cargo test --workspace` pass on the Windows machine (all crates, including 18 FTP and 6 firmware integration tests). Clippy, `npm run build` and `npm run lint` were not re-run there.
+- The user ran the app on Ubuntu (Jetson Orin) connected to a Cube Orange. **Firmware update: reported by the user as working "in principle" (a primeira vista funcionou)**, i.e. a real flash of the Cube Orange through the Firmware screen succeeded. Exact firmware version/channel, bootloader revision, timings and any rough edges were not recorded. MAVFTP and the other screens: what was exercised and with what result is **not recorded**. Update this section with those details and trim the "Not verified" sections accordingly.
+
+## Not verified (needs the real drone; may be outdated, see above)
 
 MAVFTP against real ArduPilot: burst read pacing and `burst_complete` behaviour, write chunk size over radios, `ListDirectoryWithTime` on current firmware, `param.pck?withdefaults=1`, and the `replay_serves_files` integration test, which skips when `exemplos/Teste 02 - tunning.BIN` is absent (it was absent when this was written).
 
@@ -62,13 +79,16 @@ Launch the desktop app (see "Linux / Jetson" below), connect (UDP/serial/TCP), o
 - Parameters/Calibration/Extended Tuning limitations from Phase 2 remain (no reset-to-default, Copter-only tuning). The `param.pck` fast download now exists but is untested on a real vehicle.
 - The Inspector view shows a ~81 px horizontal overflow at 1024 px width whose source was not found.
 
-## Firmware: not verified (needs a real board)
+## Firmware: partly verified on a real board (see "Hardware testing status")
 
-Never flashed a real board. The Firmware screen was only built (`npm run build`, lint), not opened in a browser or window. Unverified: bootloader timing (sync tries, 60 s erase timeout), optional GET_CHIP/GET_CHIP_DES/GET_SN on real bootloaders, reboot-to-bootloader across boards (USB port name/id often changes after the reboot; the screen refreshes ports after 3 s), the manifest `USBID` auto-detection (parsed, but the UI does not match boards by USB id yet; vid/pid are exposed on ports), boards with external flash (refused), and `.apj` download from the real server. First test with a spare board, props off, and report the board, bootloader revision and any error text.
+The user reports that a firmware update on a Cube Orange (Ubuntu/Jetson Orin) worked at first sight. The details below were written before that test and are still the list of things not individually confirmed or recorded. Unverified: bootloader timing (sync tries, 60 s erase timeout), optional GET_CHIP/GET_CHIP_DES/GET_SN on real bootloaders, reboot-to-bootloader across boards (USB port name/id often changes after the reboot; the screen refreshes ports after 3 s), the manifest `USBID` auto-detection (parsed, but the UI does not match boards by USB id yet; vid/pid are exposed on ports), boards with external flash (refused), and `.apj` download from the real server. First test with a spare board, props off, and report the board, bootloader revision and any error text.
 
 ## Next
 
-Commit Phase 4 (MAVFTP + Firmware), test both on hardware, then pick the next phase from the legacy app (logs, SITL, more setup screens). Optional firmware follow-ups: auto-select the board from USB ids, ArduPilot `.abin`/PX4 `.px4` files, external flash images.
+Phase 4 is committed. There is no Phase 5 plan; pick it from the legacy app (logs, SITL, more setup screens) and from the gaps below. Candidate items:
+- MAVFTP: tree view, recursive delete/folder download, resume, reset-to-default using the `param.pck` defaults.
+- Firmware: auto-select the board from USB ids, ArduPilot `.abin`/PX4 `.px4` files, external flash images, DFU/BLE.
+- Earlier phases: STATUSTEXT chunk reassembly, `.plan`/KML import and survey grid, Copter-only tuning, Inspector 81 px overflow at 1024 px width, bitflag decoding.
 
 ## Working rules
 

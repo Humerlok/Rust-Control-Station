@@ -6,6 +6,7 @@ mod ftp;
 mod inspector;
 mod manager;
 mod mission;
+mod motor_test;
 mod params;
 mod replay;
 mod scan;
@@ -25,6 +26,11 @@ pub use inspector::{InspectorField, InspectorMessage, InspectorService, Inspecto
 pub use manager::{LinkManager, Timing};
 pub use mission::{
     MissionError, MissionKind, MissionPhase, MissionProgress, MissionService, MissionTiming,
+};
+pub use motor_test::{
+    validate as validate_motor_test, EscReading, MotorFrame, MotorSlot, MotorTestRequest,
+    MotorTestService, MotorTestState, SpinParam, HIGH_THROTTLE_PERCENT, MAX_SECONDS,
+    MAX_SPIN_PERCENT,
 };
 pub use params::{ParamError, ParamProgress, ParamService, ParamTiming};
 pub use types::{

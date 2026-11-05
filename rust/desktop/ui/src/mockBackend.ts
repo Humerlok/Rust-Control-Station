@@ -12,6 +12,7 @@ import { createInspectorMock } from "./mockInspector";
 import { createFirmwareMock } from "./mockFirmware";
 import { createFtpMock } from "./mockFtp";
 import { createMissionMock } from "./mockMission";
+import { createMotorMock } from "./mockMotor";
 import { createPhase2Mock } from "./mockPhase2";
 
 const CENTER = { lat: -21.92, lon: -47.93 };
@@ -278,6 +279,7 @@ export function createMockBackend(): Backend {
     onLink: subscribe(listeners.link),
     onParamsProgress: phase2.onParamsProgress,
     onCalibration: phase2.onCalibration,
+    ...createMotorMock({ isConnected: () => connected, isArmed: () => armed, emitStatus }),
     ...createInspectorMock(),
     ...createMissionMock(),
     ...createFtpMock(),

@@ -5,6 +5,7 @@ mod firmware_cmds;
 mod ftp_cmds;
 mod inspector_cmds;
 mod mission_cmds;
+mod motor_cmds;
 mod params_cmds;
 
 use std::sync::Arc;
@@ -12,7 +13,8 @@ use std::sync::Arc;
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
     CalibrationService, ConnectionConfig, FirmwareService, FtpService, InspectorService, LinkEvent,
-    LinkInfo, LinkManager, MissionService, ParamService, ParamWriter, TelemetrySnapshot,
+    LinkInfo, LinkManager, MissionService, MotorTestService, ParamService, ParamWriter,
+    TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -156,6 +158,7 @@ fn main() {
     let mission_link = link.clone();
     let ftp_link = link.clone();
     let firmware_link = link.clone();
+    let motor_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
@@ -224,6 +227,26 @@ fn main() {
                     )
                 })
             };
+            // The motor test writes MOT_SPIN_ARM / MOT_SPIN_MIN the same way.
+            let motor = MotorTestService::new(motor_link, writer.clone());
+            let mut motor_events = motor.subscribe();
+            app.manage(motor.clone());
+            let motor_handle = handle.clone();
+            tauri::async_runtime::spawn(async move { motor.run().await });
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match motor_events.recv().await {
+                        Ok(state) => {
+                            if let Err(error) = motor_handle.emit("motor-test", state) {
+                                eprintln!("failed to emit motor-test: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
             let calibration = CalibrationService::new(calibration_link, writer);
             let mut calibration_events = calibration.subscribe();
             app.manage(calibration.clone());
@@ -346,6 +369,14 @@ fn main() {
             calibration_cmds::calibration_cancel,
             calibration_cmds::radio_calibration_finish,
             calibration_cmds::calibration_status,
+            motor_cmds::motor_frame,
+            motor_cmds::motor_start,
+            motor_cmds::motor_start_all,
+            motor_cmds::motor_start_sequence,
+            motor_cmds::motor_stop_all,
+            motor_cmds::motor_set_spin,
+            motor_cmds::motor_watch_esc,
+            motor_cmds::motor_status,
             inspector_cmds::inspector_enable,
             inspector_cmds::inspector_watch,
             inspector_cmds::inspector_unwatch,

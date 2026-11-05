@@ -1,8 +1,10 @@
 //! ArduPilot vehicle metadata: vehicle types and flight-mode tables.
 mod mavcmd;
+mod motor_layout;
 mod pdef;
 
 pub use mavcmd::{mission_commands, CommandInfo};
+pub use motor_layout::{fallback_motor_count, motor_layout, MotorInfo, MotorLayout};
 pub use pdef::{
     http_fetch, load_metadata, load_metadata_online, parse_pdef, pdef_url, BitOption, MetaError,
     ParamMeta, UserLevel, ValueOption, CACHE_MAX_AGE,
