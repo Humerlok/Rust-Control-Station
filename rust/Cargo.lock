@@ -420,6 +420,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "control-station-dronecan"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "control-station-firmware"
 version = "0.1.0"
 dependencies = [
@@ -437,6 +446,7 @@ dependencies = [
  "control-station-ardupilot-meta",
  "control-station-commands",
  "control-station-dataflash",
+ "control-station-dronecan",
  "control-station-firmware",
  "control-station-mavftp",
  "control-station-mavlink",

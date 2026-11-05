@@ -33,9 +33,17 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - Frames outside the layout table (heli, scripting matrix class 17, coaxial...) get generic motors A, B, C...: the screen names the unknown class/type and offers a "Number of motors" field (1-12, passed to `MotorTestService::frame` as `generic_count`). Output number and rotation are unknown for those.
 - Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
 
-## Next planned: Phase 6 DroneCAN
+## Phase 6a: DroneCAN nodes, parameters, restart (implemented, uncommitted)
 
-See the plan file: MAVLink CAN forward transport, data-driven DSDL stack in a new `dronecan` crate, nodes/params/restart (6a), node firmware update + dynamic node allocation (6b), DroneCAN Inspector (6c).
+- New pure crate `dronecan`: the DSDL files of the legacy tool copied to `crates/dronecan/dsdl/` and embedded by `build.rs`; `dsdl` (parser, constants and `voidN` handled, `OVERRIDE_SIGNATURE`, 64-bit signatures: **all 155 match** the legacy `messages.cs` table, kept as `tests/golden_signatures.txt`; constants are not part of the signature and `voidN` normalises without a trailing space), `codec` (data-driven encode/decode into `Value`; little-endian bytes with the partial byte last and bits MSB first, unions with a tag, tail array optimisation on in classic CAN and off in CAN FD, float16, zero extension of short payloads), `transfer` (29-bit id, tail byte, CRC16 seeded with the signature, multi-frame, reassembly keyed by id with a 2 s timeout, CAN FD padding before the tail byte).
+- `link::DroneCanService`: `MAV_CMD_CAN_FORWARD` renewed every second (stop sends 0), `CAN_FRAME`/`CANFD_FRAME` filtered by bus and vehicle, ground station as node 127 (NodeStatus 1 Hz, answers GetNodeInfo), node table (NodeStatus + GetNodeInfo, offline after 3 s), node `LogMessage`s (100), `list_params` (GetSet by index), `set_param` (checked against the echo), `save_params` (ExecuteOpcode SAVE), `restart_node` (silence is not an error). Requests are retried 4 times with a 1 s timeout; one operation per node at a time.
+- Desktop: `dronecan_*` commands, `dronecan` event; Setup > DroneCAN screen (CAN1/CAN2 + Connect, node grid, Parameters editor with search / non-default filter / write with `*_ENABLE` last then save to flash / commit, Restart with confirmation, node messages). `mockDroneCan.ts` backs `?mock=1`.
+- Tested: 23 unit tests in the crate, 7 loopback tests (`link/tests/dronecan.rs`: node info over several frames, parameters, retries, dead node, other bus ignored, offline), the mock flow in a browser. Not tested on a real CAN bus or peripheral.
+- Not done yet (the rest of the plan): 6b node firmware update (file server, BeginFirmwareUpdate) and dynamic node id allocation, 6c DroneCAN Inspector, stats popup and message filter. CAN FD is untested (CRC over padded payloads is accepted with or without the padding).
+
+## Next planned
+
+See the plan file for 6b and 6c.
 
 ## Verified
 

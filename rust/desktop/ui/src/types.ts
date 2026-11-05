@@ -173,6 +173,62 @@ export type MotorTestState = {
 
 export const idleMotorTest: MotorTestState = { escs: [], running: false, message: "" };
 
+// ---- Phase 6: DroneCAN ----
+
+export type DroneCanNode = {
+  id: number;
+  online: boolean;
+  name: string | null;
+  health: string;
+  mode: string;
+  uptimeSec: number;
+  vendorStatus: number;
+  swVersion: string | null;
+  swCrc: string | null;
+  hwVersion: string | null;
+  uniqueId: string | null;
+};
+
+export type DroneCanLog = { timeMs: number; node: number; level: string; source: string; text: string };
+
+export type DroneCanState = {
+  active: boolean;
+  /** 1 or 2: the autopilot's CAN bus being relayed. */
+  bus: number | null;
+  nodes: DroneCanNode[];
+  /** Newest first. */
+  logs: DroneCanLog[];
+  framesRx: number;
+  framesTx: number;
+  progress: { node: number; received: number } | null;
+};
+
+export const idleDroneCan: DroneCanState = {
+  active: false,
+  bus: null,
+  nodes: [],
+  logs: [],
+  framesRx: 0,
+  framesTx: 0,
+  progress: null,
+};
+
+export type NodeParamValue =
+  | { type: "empty" }
+  | { type: "integer"; value: number }
+  | { type: "real"; value: number }
+  | { type: "boolean"; value: boolean }
+  | { type: "text"; value: string };
+
+export type NodeParam = {
+  index: number;
+  name: string;
+  value: NodeParamValue;
+  default: NodeParamValue | null;
+  min: number | null;
+  max: number | null;
+};
+
 // ---- Phase 3: MAVLink inspector ----
 
 export type InspectorValue = number | string | boolean | Array<number | string | boolean>;

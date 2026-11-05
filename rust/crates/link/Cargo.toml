@@ -19,6 +19,7 @@ control-station-params = { path = "../params" }
 control-station-mission = { path = "../mission" }
 control-station-mavftp = { path = "../mavftp" }
 control-station-firmware = { path = "../firmware" }
+control-station-dronecan = { path = "../dronecan" }
 num-traits = "0.2"
 
 [dev-dependencies]

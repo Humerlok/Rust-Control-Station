@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
+mod dronecan_cmds;
 mod firmware_cmds;
 mod ftp_cmds;
 mod inspector_cmds;
@@ -12,9 +13,9 @@ use std::sync::Arc;
 
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
-    CalibrationService, ConnectionConfig, FirmwareService, FtpService, InspectorService, LinkEvent,
-    LinkInfo, LinkManager, MissionService, MotorTestService, ParamService, ParamWriter,
-    TelemetrySnapshot,
+    CalibrationService, ConnectionConfig, DroneCanService, FirmwareService, FtpService,
+    InspectorService, LinkEvent, LinkInfo, LinkManager, MissionService, MotorTestService,
+    ParamService, ParamWriter, TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -159,6 +160,7 @@ fn main() {
     let ftp_link = link.clone();
     let firmware_link = link.clone();
     let motor_link = link.clone();
+    let dronecan_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
@@ -227,6 +229,26 @@ fn main() {
                     )
                 })
             };
+            // DroneCAN over the MAVLink CAN forward.
+            let dronecan = DroneCanService::new(dronecan_link);
+            let mut dronecan_events = dronecan.subscribe();
+            app.manage(dronecan.clone());
+            let dronecan_handle = handle.clone();
+            tauri::async_runtime::spawn(async move { dronecan.run().await });
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match dronecan_events.recv().await {
+                        Ok(state) => {
+                            if let Err(error) = dronecan_handle.emit("dronecan", state) {
+                                eprintln!("failed to emit dronecan: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
             // The motor test writes MOT_SPIN_ARM / MOT_SPIN_MIN the same way.
             let motor = MotorTestService::new(motor_link, writer.clone());
             let mut motor_events = motor.subscribe();
@@ -377,6 +399,13 @@ fn main() {
             motor_cmds::motor_set_spin,
             motor_cmds::motor_watch_esc,
             motor_cmds::motor_status,
+            dronecan_cmds::dronecan_start,
+            dronecan_cmds::dronecan_stop,
+            dronecan_cmds::dronecan_status,
+            dronecan_cmds::dronecan_params,
+            dronecan_cmds::dronecan_set_param,
+            dronecan_cmds::dronecan_save_params,
+            dronecan_cmds::dronecan_restart,
             inspector_cmds::inspector_enable,
             inspector_cmds::inspector_watch,
             inspector_cmds::inspector_unwatch,

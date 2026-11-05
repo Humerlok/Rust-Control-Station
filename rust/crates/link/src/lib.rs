@@ -1,6 +1,7 @@
 //! Connection manager: opens a transport, parses MAVLink, tracks vehicles and link statistics,
 //! and sends commands with ACK handling. The desktop shell talks only to [`LinkManager`].
 mod calibration;
+mod dronecan;
 mod firmware;
 mod ftp;
 mod inspector;
@@ -18,6 +19,10 @@ pub use calibration::{
 pub use control_station_firmware::{BoardInfo, Firmware, ManifestEntry};
 pub use control_station_mavftp::{DirEntry, FtpError};
 pub use control_station_mission::MissionItem;
+pub use dronecan::{
+    DroneCanLog, DroneCanNode, DroneCanService, DroneCanState, DroneCanTiming, NodeParam,
+    NodeParamValue, ParamsProgress as NodeParamsProgress, GCS_NODE_ID,
+};
 pub use firmware::{FirmwareService, FirmwareServiceError, FirmwareTiming, FlashProgress};
 pub use ftp::{
     describe_errno, FtpProgress, FtpService, FtpServiceError, FtpTiming, PARAM_PCK_PATH,

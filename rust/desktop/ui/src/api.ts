@@ -6,6 +6,7 @@ import type {
   CalibrationKind,
   CalibrationState,
   ConnectionConfig,
+  DroneCanState,
   BoardInfo,
   BoardSummary,
   FirmwareBuild,
@@ -24,6 +25,8 @@ import type {
   MotorFrame,
   MotorTestRequest,
   MotorTestState,
+  NodeParam,
+  NodeParamValue,
   ParamEntry,
   ParamMeta,
   ParamsProgress,
@@ -79,6 +82,15 @@ export interface Backend {
   /** Streams ESC telemetry while the screen is open. */
   motorWatchEsc(enabled: boolean): Promise<void>;
   motorStatus(): Promise<MotorTestState>;
+  /** Relays a CAN bus of the autopilot (1 or 2) and speaks DroneCAN on it. */
+  dronecanStart(bus: number): Promise<string>;
+  dronecanStop(): Promise<string>;
+  dronecanStatus(): Promise<DroneCanState>;
+  dronecanParams(node: number): Promise<NodeParam[]>;
+  /** Resolves with the value the node holds after the write. */
+  dronecanSetParam(node: number, name: string, value: NodeParamValue): Promise<NodeParam>;
+  dronecanSaveParams(node: number): Promise<string>;
+  dronecanRestart(node: number): Promise<string>;
   inspectorEnable(enabled: boolean): Promise<void>;
   inspectorWatch(key: string): Promise<void>;
   inspectorUnwatch(key: string): Promise<void>;
@@ -115,6 +127,7 @@ export interface Backend {
   onParamsProgress(cb: (p: ParamsProgress) => void): Promise<Unlisten>;
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
   onMotorTest(cb: (s: MotorTestState) => void): Promise<Unlisten>;
+  onDroneCan(cb: (s: DroneCanState) => void): Promise<Unlisten>;
   onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
   onFtpProgress(cb: (progress: FtpProgress) => void): Promise<Unlisten>;
@@ -166,6 +179,13 @@ const tauriBackend: Backend = {
   motorSetSpin: (which, percent) => invoke("motor_set_spin", { which, percent }),
   motorWatchEsc: (enabled) => invoke("motor_watch_esc", { enabled }),
   motorStatus: () => invoke("motor_status"),
+  dronecanStart: (bus) => invoke("dronecan_start", { bus }),
+  dronecanStop: () => invoke("dronecan_stop"),
+  dronecanStatus: () => invoke("dronecan_status"),
+  dronecanParams: (node) => invoke("dronecan_params", { node }),
+  dronecanSetParam: (node, name, value) => invoke("dronecan_set_param", { node, name, value }),
+  dronecanSaveParams: (node) => invoke("dronecan_save_params", { node }),
+  dronecanRestart: (node) => invoke("dronecan_restart", { node }),
   inspectorEnable: (enabled) => invoke("inspector_enable", { enabled }),
   inspectorWatch: (key) => invoke("inspector_watch", { key }),
   inspectorUnwatch: (key) => invoke("inspector_unwatch", { key }),
@@ -199,6 +219,7 @@ const tauriBackend: Backend = {
   onParamsProgress: subscribe<ParamsProgress>("params-progress"),
   onCalibration: subscribe<CalibrationState>("calibration"),
   onMotorTest: subscribe<MotorTestState>("motor-test"),
+  onDroneCan: subscribe<DroneCanState>("dronecan"),
   onInspector: subscribe<InspectorSnapshot>("inspector"),
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
   onFtpProgress: subscribe<FtpProgress>("ftp-progress"),

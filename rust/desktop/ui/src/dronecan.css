@@ -1,0 +1,19 @@
+/* ---- Phase 6: DroneCAN ---- */
+.dc-view { height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.dc-connect { display: flex; align-items: flex-end; gap: 12px; padding: 10px; flex-wrap: wrap; }
+.dc-connect label { display: flex; flex-direction: column; gap: 3px; color: var(--text); }
+.dc-stats { align-self: center; }
+.dc-note { margin: 0; font-size: 12px; }
+.dc-table-wrap { overflow: auto; }
+.dc-table { width: 100%; border-collapse: collapse; }
+.dc-table th { text-align: left; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 5px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.dc-table td { padding: 5px 8px; border-bottom: 1px solid rgba(76, 86, 106, 0.4); vertical-align: middle; }
+.dc-table tr.offline td { color: var(--text-dim); opacity: 0.65; }
+.dc-actions { display: flex; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.dc-logs { max-height: 220px; overflow: auto; }
+.dc-params-body { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.dc-ptable { display: flex; flex-direction: column; max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.dc-prow { display: grid; grid-template-columns: minmax(150px, 1.4fr) minmax(130px, 1fr) 90px 90px 90px minmax(0, 1fr); gap: 8px; align-items: center; padding: 3px 8px; border-bottom: 1px solid rgba(76, 86, 106, 0.4); }
+.dc-prow.head { position: sticky; top: 0; background: var(--panel-raised); color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; z-index: 1; }
+.dc-prow.modified { background: rgba(163, 190, 140, 0.16); box-shadow: inset 3px 0 0 var(--ok); }
+.dc-prow.failed { background: rgba(191, 97, 106, 0.16); box-shadow: inset 3px 0 0 var(--danger); }

@@ -6,6 +6,7 @@ import { paramStore } from "./useParams";
 import { useLive } from "./useLive";
 import { Calibration } from "./views/Calibration";
 import { ExtendedTuning } from "./views/ExtendedTuning";
+import { DroneCan } from "./views/DroneCan";
 import { FlightData } from "./views/FlightData";
 import { FlightPlan } from "./views/FlightPlan";
 import { Inspector } from "./views/Inspector";
@@ -16,7 +17,7 @@ import { Parameters } from "./views/Parameters";
 import { Placeholder } from "./views/Placeholder";
 
 // Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
-const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware", "motor-test"];
+const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware", "motor-test", "dronecan"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -26,6 +27,7 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
     items: [
       { id: "calibration", label: "Calibration" },
       { id: "motor-test", label: "Motor Test" },
+      { id: "dronecan", label: "DroneCAN" },
       { id: "firmware", label: "Firmware" },
     ],
   },
@@ -113,6 +115,9 @@ export function App() {
         </div>
         <div className="view" hidden={view !== "motor-test"}>
           <MotorTest telemetry={telemetry} active={view === "motor-test"} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "dronecan"}>
+          <DroneCan telemetry={telemetry} notify={notify} />
         </div>
         <div className="view" hidden={view !== "parameters"}>
           <Parameters notify={notify} />

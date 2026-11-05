@@ -65,6 +65,9 @@ rust/
     mission/         — MissionItem and the QGC WPL 110 `.waypoints` parser/formatter (pure)
     mavftp/          — MAVFTP wire format: frame encode/decode, NAK codes, directory listing parser, ArduPilot CRC32 (pure)
     firmware/        — firmware manifest, .apj images and the serial bootloader protocol (pure)
+    dronecan/        — DroneCAN (UAVCAN v0): vendored DSDL embedded at build time (`dsdl/`), DSDL parser with 64-bit
+                       signatures (checked against the legacy table in `tests/golden_signatures.txt`), data-driven bit
+                       codec (`Value`), CAN transfer layer (29-bit id, tail byte, CRC16, multi-frame, reassembly) (pure)
     commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list)
     dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
     link/            — LinkManager (one connection, vehicles, stats, ACK-checked commands, packet bus, AUTO scan, log Replay)
@@ -72,7 +75,9 @@ rust/
                        InspectorService (per-message stats, decoded fields, watched series), MissionService
                        (mission/fence/rally upload, download, clear), FtpService (MAVFTP list/read/write/remove/mkdir/
                        rename/CRC; also feeds ParamService's fast `param.pck` download), FirmwareService (manifest/.apj download,
-                       bootloader identify and flash)
+                       bootloader identify and flash), MotorTestService (DO_MOTOR_TEST with the safety rules, ESC
+                       telemetry), DroneCanService (CAN forward relay as node 127: node table, logs, node parameters,
+                       save, restart)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -103,7 +108,9 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 
 Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
 Tuning, MAVLink Inspector, mission planning). Phase 4 is implemented: MAVFTP and firmware
-flashing (see HANDOFF.md; flashing has only been tested against a fake bootloader).
+flashing (see HANDOFF.md; the user flashed a Cube Orange with it). Phase 5 (Motor Test) and
+Phase 6a (DroneCAN nodes, parameters, restart) are implemented; DroneCAN has only been tested
+against a fake CAN node behind a fake MAVLink vehicle, never on a real CAN bus.
 Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration/mission flows are
 covered only by loopback and Replay tests, not by hardware.
 

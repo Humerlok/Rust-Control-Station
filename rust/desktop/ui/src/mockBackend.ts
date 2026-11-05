@@ -12,6 +12,7 @@ import { createInspectorMock } from "./mockInspector";
 import { createFirmwareMock } from "./mockFirmware";
 import { createFtpMock } from "./mockFtp";
 import { createMissionMock } from "./mockMission";
+import { createDroneCanMock } from "./mockDroneCan";
 import { createMotorMock } from "./mockMotor";
 import { createPhase2Mock } from "./mockPhase2";
 
@@ -180,6 +181,7 @@ export function createMockBackend(): Backend {
   }
 
   const phase2 = createPhase2Mock({ isConnected: () => connected, isArmed: () => armed, emitStatus });
+  const { reset: resetDroneCan, ...dronecan } = createDroneCanMock({ isConnected: () => connected });
 
   async function command(label: string): Promise<string> {
     await sleep(150);
@@ -205,6 +207,7 @@ export function createMockBackend(): Backend {
     async connect(config: ConnectionConfig) {
       if (config.type === "replay" && config.path.trim() === "") throw "replay file path is empty";
       phase2.reset();
+      resetDroneCan();
       connecting = true;
       connected = false;
       emitLink();
@@ -219,6 +222,7 @@ export function createMockBackend(): Backend {
       connected = false;
       connecting = false;
       phase2.reset();
+      resetDroneCan();
       emitLink();
     },
     linkStatus: async () => lastLink,
@@ -279,6 +283,7 @@ export function createMockBackend(): Backend {
     onLink: subscribe(listeners.link),
     onParamsProgress: phase2.onParamsProgress,
     onCalibration: phase2.onCalibration,
+    ...dronecan,
     ...createMotorMock({ isConnected: () => connected, isArmed: () => armed, emitStatus }),
     ...createInspectorMock(),
     ...createMissionMock(),
