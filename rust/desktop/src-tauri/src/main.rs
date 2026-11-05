@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
+mod ftp_cmds;
 mod inspector_cmds;
 mod mission_cmds;
 mod params_cmds;
@@ -9,8 +10,8 @@ use std::sync::Arc;
 
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
-    CalibrationService, ConnectionConfig, InspectorService, LinkEvent, LinkInfo, LinkManager,
-    MissionService, ParamService, ParamWriter, TelemetrySnapshot,
+    CalibrationService, ConnectionConfig, FtpService, InspectorService, LinkEvent, LinkInfo,
+    LinkManager, MissionService, ParamService, ParamWriter, TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -148,6 +149,7 @@ fn main() {
     let calibration_link = link.clone();
     let inspector_link = link.clone();
     let mission_link = link.clone();
+    let ftp_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
@@ -158,7 +160,28 @@ fn main() {
                 .app_cache_dir()
                 .unwrap_or_else(|_| std::env::temp_dir())
                 .join("param-metadata");
-            let params = ParamService::new(params_link).with_cache_dir(cache_dir);
+            // MAVFTP: the file screen, and the fast parameter download.
+            let ftp = FtpService::new(ftp_link);
+            let mut ftp_progress = ftp.subscribe_progress();
+            app.manage(ftp.clone());
+            let ftp_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match ftp_progress.recv().await {
+                        Ok(p) => {
+                            if let Err(error) = ftp_handle.emit("ftp-progress", p) {
+                                eprintln!("failed to emit ftp-progress: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            let params = ParamService::new(params_link)
+                .with_cache_dir(cache_dir)
+                .with_ftp(ftp);
             let mut progress = params.subscribe_progress();
             app.manage(params_cmds::ParamsState {
                 service: params.clone(),
@@ -306,7 +329,16 @@ fn main() {
             mission_cmds::mission_clear,
             mission_cmds::mission_commands,
             mission_cmds::mission_parse_file,
-            mission_cmds::mission_format_file
+            mission_cmds::mission_format_file,
+            ftp_cmds::ftp_list,
+            ftp_cmds::ftp_download,
+            ftp_cmds::ftp_upload,
+            ftp_cmds::ftp_remove,
+            ftp_cmds::ftp_mkdir,
+            ftp_cmds::ftp_rmdir,
+            ftp_cmds::ftp_rename,
+            ftp_cmds::ftp_crc,
+            ftp_cmds::ftp_cancel
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop application");

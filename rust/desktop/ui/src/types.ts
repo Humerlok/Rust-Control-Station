@@ -198,3 +198,20 @@ export type MissionProgress = {
   finished: boolean;
   error: string | null;
 };
+
+export type FtpEntry = {
+  name: string;
+  isDir: boolean;
+  size: number;
+  /** Seconds since the Unix epoch, when the vehicle reports one. */
+  modified: number | null;
+};
+
+export type FtpProgress = {
+  op: string;
+  path: string;
+  done: number;
+  total: number;
+  finished: boolean;
+  error: string | null;
+};

@@ -25,7 +25,7 @@ use tokio::{
     time::{timeout_at, Instant},
 };
 
-use crate::{LinkError, LinkEvent, LinkManager, LinkState};
+use crate::{FtpService, LinkError, LinkEvent, LinkManager, LinkState};
 
 type Fetcher = Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
 
@@ -109,6 +109,10 @@ struct Inner {
     cache_dir: PathBuf,
     fetcher: Fetcher,
     metadata: Mutex<HashMap<VehicleType, Arc<HashMap<String, ParamMeta>>>>,
+    /// When set, `refresh` tries the MAVFTP `param.pck` download first.
+    ftp: Option<FtpService>,
+    /// Vehicles where the fast download failed; they go straight to PARAM_REQUEST_LIST.
+    ftp_failed: Mutex<Vec<VehicleId>>,
 }
 
 #[derive(Clone)]
@@ -138,13 +142,32 @@ impl ParamService {
             ParamTiming::default(),
             std::env::temp_dir().join("control-station-metadata"),
             Arc::new(meta::http_fetch),
+            None,
         )
     }
 
     /// Where parsed-definition downloads are cached (the app cache directory).
     pub fn with_cache_dir(self, cache_dir: PathBuf) -> Self {
         let i = &self.inner;
-        Self::build(i.link.clone(), i.timing, cache_dir, i.fetcher.clone())
+        Self::build(
+            i.link.clone(),
+            i.timing,
+            cache_dir,
+            i.fetcher.clone(),
+            i.ftp.clone(),
+        )
+    }
+
+    /// Enables the fast `@PARAM/param.pck` download over MAVFTP (falls back to MAVLink).
+    pub fn with_ftp(self, ftp: FtpService) -> Self {
+        let i = &self.inner;
+        Self::build(
+            i.link.clone(),
+            i.timing,
+            i.cache_dir.clone(),
+            i.fetcher.clone(),
+            Some(ftp),
+        )
     }
 
     pub fn with_timing(self, timing: ParamTiming) -> Self {
@@ -154,6 +177,7 @@ impl ParamService {
             timing,
             i.cache_dir.clone(),
             i.fetcher.clone(),
+            i.ftp.clone(),
         )
     }
 
@@ -168,10 +192,17 @@ impl ParamService {
             i.timing,
             i.cache_dir.clone(),
             Arc::new(fetcher),
+            i.ftp.clone(),
         )
     }
 
-    fn build(link: LinkManager, timing: ParamTiming, cache_dir: PathBuf, fetcher: Fetcher) -> Self {
+    fn build(
+        link: LinkManager,
+        timing: ParamTiming,
+        cache_dir: PathBuf,
+        fetcher: Fetcher,
+        ftp: Option<FtpService>,
+    ) -> Self {
         let (updates, _) = broadcast::channel(4096);
         let (progress, _) = broadcast::channel(256);
         let service = Self {
@@ -186,6 +217,8 @@ impl ParamService {
                 cache_dir,
                 fetcher,
                 metadata: Mutex::new(HashMap::new()),
+                ftp,
+                ftp_failed: Mutex::new(Vec::new()),
             }),
         };
         if tokio::runtime::Handle::try_current().is_ok() {
@@ -288,6 +321,44 @@ impl ParamService {
         result
     }
 
+    /// The MAVFTP fast path. `None` means "not available, use MAVLink".
+    async fn download_fast(&self, vehicle: VehicleId) -> Option<usize> {
+        let ftp = self.inner.ftp.as_ref()?;
+        let known_bad = self
+            .inner
+            .ftp_failed
+            .lock()
+            .expect("ftp_failed lock")
+            .contains(&vehicle);
+        if known_bad {
+            return None;
+        }
+        self.emit(0, 0, false, None);
+        match ftp.read_params().await {
+            Ok(params) if !params.is_empty() => {
+                let count = params.len();
+                let mut state = self.state();
+                if state.vehicle != Some(vehicle) {
+                    return None;
+                }
+                state.table.clear();
+                state.table.set_expected(count as u16);
+                for param in params {
+                    state.table.insert(param);
+                }
+                Some(count)
+            }
+            _ => {
+                self.inner
+                    .ftp_failed
+                    .lock()
+                    .expect("ftp_failed lock")
+                    .push(vehicle);
+                None
+            }
+        }
+    }
+
     async fn download(&self) -> Result<usize, ParamError> {
         let timing = self.inner.timing;
         let (vehicle, _) = self.inner.link.selected_vehicle()?;
@@ -295,6 +366,9 @@ impl ParamService {
             let mut state = self.state();
             state.vehicle = Some(vehicle);
             state.table.clear();
+        }
+        if let Some(count) = self.download_fast(vehicle).await {
+            return Ok(count);
         }
         let mut updates = self.inner.updates.subscribe();
         self.send_list_request(vehicle)?;

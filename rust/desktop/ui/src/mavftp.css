@@ -1,0 +1,38 @@
+.ftp { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; }
+.ftp-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 8px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.ftp-toolbar .sep { width: 1px; height: 22px; background: var(--border); }
+.ftp-toolbar .spacer { flex: 1; }
+.ftp-path { flex: 1 1 260px; min-width: 180px; height: 28px; font-family: var(--mono); }
+.ftp-toolbar label.inline { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ftp-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 170px 1fr; gap: 8px; }
+.ftp-places {
+  display: flex; flex-direction: column; gap: 2px; padding: 6px; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.ftp-places .group { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); padding: 4px 6px; }
+.ftp-places button { text-align: left; border: 0; background: transparent; padding: 5px 8px; font-family: var(--mono); font-size: 12px; }
+.ftp-places button.active { background: var(--panel-raised); color: var(--accent); }
+.ftp-files {
+  display: flex; flex-direction: column; min-height: 0; overflow: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.ftp-head, .ftp-row { display: grid; grid-template-columns: minmax(160px, 1fr) 100px 170px; gap: 8px; align-items: center; padding: 0 10px; min-height: 30px; }
+.ftp-head { position: sticky; top: 0; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); background: var(--panel-raised); border-bottom: 1px solid var(--border); }
+.ftp-row { cursor: default; border-left: 3px solid transparent; }
+.ftp-row:hover { background: var(--panel-raised); }
+.ftp-row.selected { background: var(--panel-raised); border-left-color: var(--accent); }
+.ftp-row .name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ftp-row .name.dir { color: var(--nord13); }
+.ftp-row .num { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+.ftp-row .when { font-family: var(--mono); font-size: 12px; color: var(--text-dim); }
+.ftp-empty { padding: 16px; margin: 0; }
+.ftp-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px;
+  border: 1px solid var(--danger); border-radius: var(--radius); color: var(--danger); background: rgba(191, 97, 106, 0.1);
+}
+.ftp-error button { border: 0; background: transparent; padding: 0 4px; color: inherit; }
+.ftp-status { display: flex; align-items: center; gap: 10px; min-height: 24px; font-size: 12px; }
+.ftp-status .progress.small { flex: none; width: 220px; }

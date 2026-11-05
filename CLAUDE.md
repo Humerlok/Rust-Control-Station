@@ -24,6 +24,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+Single test / single crate:
+
+```powershell
+cargo test -p <crate> <test_name>              # e.g. cargo test -p link --test mission round_trip
+cargo test -p link --test loopback             # one integration-test file (crates/*/tests/*.rs)
+```
+
 Desktop app (Tauri 2 + React + Vite):
 
 ```powershell
@@ -32,6 +39,12 @@ npm ci
 npm run build          # typecheck + vite build
 npm run tauri          # launch desktop app (runs from ../src-tauri)
 ```
+
+UI-only loop (no Tauri, mock backend): `npm run dev` in `rust/desktop/ui`, then open `/?mock=1`.
+`npm run lint` runs ESLint 9 (flat config in `eslint.config.js`) on `src`.
+
+On Linux the Tauri build needs an untracked `rust/desktop/src-tauri/icons/icon.png` (the config only lists
+an `.ico`); see HANDOFF.md "Linux / Jetson development" for the run recipe and CDP caveats.
 
 If the Tauri CLI can't find `tauri.conf.json`, run directly from `rust/desktop/src-tauri`:
 ```powershell
@@ -50,12 +63,14 @@ rust/
                        mission command catalog (data/mavcmd.xml, copied from the repo root)
     params/          — ParamTable, .param file parse/format, natural sort (pure, no I/O)
     mission/         — MissionItem and the QGC WPL 110 `.waypoints` parser/formatter (pure)
+    mavftp/          — MAVFTP wire format: frame encode/decode, NAK codes, directory listing parser, ArduPilot CRC32 (pure)
     commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list)
     dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
     link/            — LinkManager (one connection, vehicles, stats, ACK-checked commands, packet bus, AUTO scan, log Replay)
                        plus services built on its public API: ParamService (download/set/metadata), CalibrationService,
                        InspectorService (per-message stats, decoded fields, watched series), MissionService
-                       (mission/fence/rally upload, download, clear)
+                       (mission/fence/rally upload, download, clear), FtpService (MAVFTP list/read/write/remove/mkdir/
+                       rename/CRC; also feeds ParamService's fast `param.pck` download)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -85,7 +100,8 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 ### Current limitations
 
 Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
-Tuning, MAVLink Inspector, mission planning). MAVFTP and firmware are placeholders (see HANDOFF.md).
+Tuning, MAVLink Inspector, mission planning). Phase 4 is half done: MAVFTP is implemented, firmware
+flashing is still a placeholder (see HANDOFF.md).
 Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration/mission flows are
 covered only by loopback and Replay tests, not by hardware.
 
@@ -98,6 +114,13 @@ struct literals of dialect messages need `..Default::default()`.
 `.github/workflows/rust-control-station.yml` runs on push/PR when `rust/` or `AGENTS.md`
 changes: `cargo fmt --check`, `cargo clippy`, `cargo test`, plus `npm install && npm run build`
 for the UI, on both Windows and Ubuntu.
+
+### Related docs
+
+`AGENTS.md` (repo guidelines, same rules as below) and `HANDOFF.md` (per-phase state, what is verified
+vs. needs a real drone, next phase) are the running project notes; read `HANDOFF.md` before starting
+new phase work. `Cargo.toml` raises opt-level for the dataflash crate even in dev builds because
+parsing large `.BIN` logs is otherwise unusably slow.
 
 ### Style & rules
 

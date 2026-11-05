@@ -3,6 +3,9 @@ use std::{cmp::Ordering, collections::BTreeMap, collections::HashMap};
 
 use serde::Serialize;
 
+mod pck;
+pub use pck::{unpack_param_pck, PckError};
+
 /// `MAV_PARAM_TYPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "UPPERCASE")]

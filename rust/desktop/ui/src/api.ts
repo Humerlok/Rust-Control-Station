@@ -6,6 +6,8 @@ import type {
   CalibrationKind,
   CalibrationState,
   ConnectionConfig,
+  FtpEntry,
+  FtpProgress,
   InspectorSnapshot,
   FieldInfo,
   LinkInfo,
@@ -66,6 +68,17 @@ export interface Backend {
   missionCommands(): Promise<MissionCommandInfo[]>;
   missionParseFile(text: string): Promise<MissionItem[]>;
   missionFormatFile(items: MissionItem[]): Promise<string>;
+  ftpList(path: string): Promise<FtpEntry[]>;
+  /** File contents, base64 encoded. */
+  ftpDownload(path: string): Promise<string>;
+  ftpUpload(path: string, dataBase64: string, verify: boolean): Promise<void>;
+  ftpRemove(path: string): Promise<void>;
+  ftpMkdir(path: string): Promise<void>;
+  ftpRmdir(path: string): Promise<void>;
+  ftpRename(from: string, to: string): Promise<void>;
+  /** CRC32 computed by the vehicle, lowercase hex. */
+  ftpCrc(path: string): Promise<string>;
+  ftpCancel(): Promise<void>;
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
@@ -73,6 +86,7 @@ export interface Backend {
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
   onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
+  onFtpProgress(cb: (progress: FtpProgress) => void): Promise<Unlisten>;
 }
 
 const subscribe =
@@ -122,6 +136,15 @@ const tauriBackend: Backend = {
   missionCommands: () => invoke("mission_commands"),
   missionParseFile: (text) => invoke("mission_parse_file", { text }),
   missionFormatFile: (items) => invoke("mission_format_file", { items }),
+  ftpList: (path) => invoke("ftp_list", { path }),
+  ftpDownload: (path) => invoke("ftp_download", { path }),
+  ftpUpload: (path, data, verify) => invoke("ftp_upload", { path, data, verify }),
+  ftpRemove: (path) => invoke("ftp_remove", { path }),
+  ftpMkdir: (path) => invoke("ftp_mkdir", { path }),
+  ftpRmdir: (path) => invoke("ftp_rmdir", { path }),
+  ftpRename: (from, to) => invoke("ftp_rename", { from, to }),
+  ftpCrc: (path) => invoke("ftp_crc", { path }),
+  ftpCancel: () => invoke("ftp_cancel"),
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
@@ -129,6 +152,7 @@ const tauriBackend: Backend = {
   onCalibration: subscribe<CalibrationState>("calibration"),
   onInspector: subscribe<InspectorSnapshot>("inspector"),
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
+  onFtpProgress: subscribe<FtpProgress>("ftp-progress"),
 };
 
 const useMock =

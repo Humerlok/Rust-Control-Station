@@ -29,7 +29,9 @@ use tokio::{
 
 use crate::types::LinkError;
 
+mod ftp;
 mod missions;
+use ftp::ReplayFtp;
 use missions::ReplayMissions;
 
 #[derive(Debug, Clone)]
@@ -370,6 +372,7 @@ async fn run(
         _ => None,
     });
     let missions = Arc::new(Mutex::new(ReplayMissions::new(home)));
+    let mut files = ReplayFtp::new();
     let responder = {
         let sender = sender.clone();
         tokio::spawn(async move {
@@ -385,6 +388,11 @@ async fn run(
                         .expect("replay missions")
                         .handle(&packet.message);
                     for reply in mission_replies {
+                        if !sender.send(reply).await {
+                            return;
+                        }
+                    }
+                    for reply in files.handle(&packet.message) {
                         if !sender.send(reply).await {
                             return;
                         }
