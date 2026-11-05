@@ -1,0 +1,12 @@
+[package]
+name = "control-station-firmware"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64 = "0.22"
+flate2 = "1.1"

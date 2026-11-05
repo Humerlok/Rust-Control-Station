@@ -12,6 +12,7 @@ tauri = { version = "2", features = [] }
 serde.workspace = true
 base64 = "0.22"
 tokio.workspace = true
+control-station-firmware = { path = "../../crates/firmware" }
 control-station-link = { path = "../../crates/link" }
 control-station-commands = { path = "../../crates/commands" }
 control-station-transport = { path = "../../crates/transport" }

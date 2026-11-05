@@ -1,0 +1,20 @@
+.fw { display: flex; flex-direction: column; gap: 10px; max-width: 880px; }
+.fw-card {
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.fw-card h2 { margin: 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-dim); }
+.fw-card p { margin: 0; }
+.fw-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fw-row .sep { width: 1px; height: 22px; background: var(--border); }
+.fw-builds { flex: 1 1 320px; min-width: 220px; }
+.fw-info { font-size: 12px; }
+.fw-info .dim, .fw-card .dim { color: var(--text-dim); }
+.fw-status { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.fw-status .progress.small { flex: none; width: 260px; }
+.fw-ok { padding: 6px 10px; border: 1px solid var(--success, var(--nord14)); border-radius: var(--radius); }
+.fw-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px;
+  border: 1px solid var(--danger); border-radius: var(--radius); color: var(--danger); background: rgba(191, 97, 106, 0.1);
+}
+.fw-error button { border: 0; background: transparent; padding: 0 4px; color: inherit; }

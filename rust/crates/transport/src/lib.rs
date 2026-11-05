@@ -125,6 +125,9 @@ pub async fn open(endpoint: &Endpoint) -> Result<Connection, TransportError> {
 pub struct SerialPortInfo {
     pub name: String,
     pub description: String,
+    /// USB vendor and product ids; `None` for ports that are not USB (UARTs, Bluetooth).
+    pub vid: Option<u16>,
+    pub pid: Option<u16>,
 }
 
 pub fn list_serial_ports() -> Vec<SerialPortInfo> {
@@ -132,11 +135,14 @@ pub fn list_serial_ports() -> Vec<SerialPortInfo> {
         .unwrap_or_default()
         .into_iter()
         .map(|p| {
+            let (mut vid, mut pid) = (None, None);
             let description = match p.port_type {
-                tokio_serial::SerialPortType::UsbPort(usb) => usb
-                    .product
-                    .or(usb.manufacturer)
-                    .unwrap_or_else(|| format!("USB {:04x}:{:04x}", usb.vid, usb.pid)),
+                tokio_serial::SerialPortType::UsbPort(usb) => {
+                    (vid, pid) = (Some(usb.vid), Some(usb.pid));
+                    usb.product
+                        .or(usb.manufacturer)
+                        .unwrap_or_else(|| format!("USB {:04x}:{:04x}", usb.vid, usb.pid))
+                }
                 tokio_serial::SerialPortType::BluetoothPort => "Bluetooth".into(),
                 tokio_serial::SerialPortType::PciPort => "PCI".into(),
                 tokio_serial::SerialPortType::Unknown => String::new(),
@@ -144,6 +150,8 @@ pub fn list_serial_ports() -> Vec<SerialPortInfo> {
             SerialPortInfo {
                 name: p.port_name,
                 description,
+                vid,
+                pid,
             }
         })
         .collect();

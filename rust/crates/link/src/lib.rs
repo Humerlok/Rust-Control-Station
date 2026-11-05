@@ -1,6 +1,7 @@
 //! Connection manager: opens a transport, parses MAVLink, tracks vehicles and link statistics,
 //! and sends commands with ACK handling. The desktop shell talks only to [`LinkManager`].
 mod calibration;
+mod firmware;
 mod ftp;
 mod inspector;
 mod manager;
@@ -13,8 +14,10 @@ mod types;
 pub use calibration::{
     CalState, CalibrationKind, CalibrationService, CalibrationState, ParamWriter, RadioCal,
 };
+pub use control_station_firmware::{BoardInfo, Firmware, ManifestEntry};
 pub use control_station_mavftp::{DirEntry, FtpError};
 pub use control_station_mission::MissionItem;
+pub use firmware::{FirmwareService, FirmwareServiceError, FirmwareTiming, FlashProgress};
 pub use ftp::{
     describe_errno, FtpProgress, FtpService, FtpServiceError, FtpTiming, PARAM_PCK_PATH,
 };

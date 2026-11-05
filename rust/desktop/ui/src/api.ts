@@ -6,7 +6,13 @@ import type {
   CalibrationKind,
   CalibrationState,
   ConnectionConfig,
+  BoardInfo,
+  BoardSummary,
+  FirmwareBuild,
+  FirmwareQuery,
+  FlashProgress,
   FtpEntry,
+  LoadedFirmware,
   FtpProgress,
   InspectorSnapshot,
   FieldInfo,
@@ -79,6 +85,15 @@ export interface Backend {
   /** CRC32 computed by the vehicle, lowercase hex. */
   ftpCrc(path: string): Promise<string>;
   ftpCancel(): Promise<void>;
+  firmwareCatalog(): Promise<BoardSummary[]>;
+  firmwareBuilds(query: FirmwareQuery): Promise<FirmwareBuild[]>;
+  firmwareLoadUrl(url: string): Promise<LoadedFirmware>;
+  /** A local `.apj`, base64 encoded. */
+  firmwareLoadFile(dataBase64: string): Promise<LoadedFirmware>;
+  firmwareRebootBootloader(): Promise<void>;
+  firmwareIdentify(port: string): Promise<BoardInfo>;
+  firmwareFlash(port: string): Promise<BoardInfo>;
+  firmwareCancel(): Promise<void>;
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
@@ -87,6 +102,7 @@ export interface Backend {
   onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
   onFtpProgress(cb: (progress: FtpProgress) => void): Promise<Unlisten>;
+  onFlashProgress(cb: (progress: FlashProgress) => void): Promise<Unlisten>;
 }
 
 const subscribe =
@@ -145,6 +161,14 @@ const tauriBackend: Backend = {
   ftpRename: (from, to) => invoke("ftp_rename", { from, to }),
   ftpCrc: (path) => invoke("ftp_crc", { path }),
   ftpCancel: () => invoke("ftp_cancel"),
+  firmwareCatalog: () => invoke("firmware_catalog"),
+  firmwareBuilds: (query) => invoke("firmware_builds", { query }),
+  firmwareLoadUrl: (url) => invoke("firmware_load_url", { url }),
+  firmwareLoadFile: (data) => invoke("firmware_load_file", { data }),
+  firmwareRebootBootloader: () => invoke("firmware_reboot_bootloader"),
+  firmwareIdentify: (port) => invoke("firmware_identify", { port }),
+  firmwareFlash: (port) => invoke("firmware_flash", { port }),
+  firmwareCancel: () => invoke("firmware_cancel"),
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
@@ -153,6 +177,7 @@ const tauriBackend: Backend = {
   onInspector: subscribe<InspectorSnapshot>("inspector"),
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
   onFtpProgress: subscribe<FtpProgress>("ftp-progress"),
+  onFlashProgress: subscribe<FlashProgress>("flash-progress"),
 };
 
 const useMock =

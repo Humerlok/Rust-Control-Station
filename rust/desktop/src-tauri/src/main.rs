@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
+mod firmware_cmds;
 mod ftp_cmds;
 mod inspector_cmds;
 mod mission_cmds;
@@ -10,8 +11,8 @@ use std::sync::Arc;
 
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
-    CalibrationService, ConnectionConfig, FtpService, InspectorService, LinkEvent, LinkInfo,
-    LinkManager, MissionService, ParamService, ParamWriter, TelemetrySnapshot,
+    CalibrationService, ConnectionConfig, FirmwareService, FtpService, InspectorService, LinkEvent,
+    LinkInfo, LinkManager, MissionService, ParamService, ParamWriter, TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -27,6 +28,8 @@ struct AppState {
 struct SerialPortDto {
     name: String,
     description: String,
+    vid: Option<u16>,
+    pid: Option<u16>,
 }
 
 fn text<T>(result: Result<T, control_station_link::LinkError>) -> Result<T, String> {
@@ -40,6 +43,8 @@ fn list_serial_ports() -> Vec<SerialPortDto> {
         .map(|p| SerialPortDto {
             name: p.name,
             description: p.description,
+            vid: p.vid,
+            pid: p.pid,
         })
         .collect()
 }
@@ -150,6 +155,7 @@ fn main() {
     let inspector_link = link.clone();
     let mission_link = link.clone();
     let ftp_link = link.clone();
+    let firmware_link = link.clone();
     tauri::Builder::default()
         .manage(AppState { link })
         .setup(move |app| {
@@ -171,6 +177,26 @@ fn main() {
                         Ok(p) => {
                             if let Err(error) = ftp_handle.emit("ftp-progress", p) {
                                 eprintln!("failed to emit ftp-progress: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
+            // Firmware: manifest, `.apj` download and bootloader flashing.
+            let firmware = FirmwareService::new(firmware_link);
+            let mut flash_progress = firmware.subscribe_progress();
+            app.manage(firmware);
+            app.manage(firmware_cmds::FirmwareState::default());
+            let flash_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match flash_progress.recv().await {
+                        Ok(p) => {
+                            if let Err(error) = flash_handle.emit("flash-progress", p) {
+                                eprintln!("failed to emit flash-progress: {error}");
                             }
                         }
                         Err(RecvError::Lagged(_)) => continue,
@@ -338,7 +364,15 @@ fn main() {
             ftp_cmds::ftp_rmdir,
             ftp_cmds::ftp_rename,
             ftp_cmds::ftp_crc,
-            ftp_cmds::ftp_cancel
+            ftp_cmds::ftp_cancel,
+            firmware_cmds::firmware_catalog,
+            firmware_cmds::firmware_builds,
+            firmware_cmds::firmware_load_url,
+            firmware_cmds::firmware_load_file,
+            firmware_cmds::firmware_reboot_bootloader,
+            firmware_cmds::firmware_identify,
+            firmware_cmds::firmware_flash,
+            firmware_cmds::firmware_cancel
         ])
         .run(tauri::generate_context!())
         .expect("failed to run desktop application");

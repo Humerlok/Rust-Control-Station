@@ -550,6 +550,14 @@ impl LinkManager {
         Ok("Accepted".into())
     }
 
+    /// Reboots the selected vehicle into its bootloader (for firmware flashing).
+    pub async fn reboot_to_bootloader(&self) -> Result<String, LinkError> {
+        let (id, _) = self.target()?;
+        self.send_command(commands::reboot_to_bootloader(id))
+            .await?;
+        Ok("Accepted".into())
+    }
+
     /// Copters must be in Guided before they accept a takeoff command.
     pub async fn takeoff(&self, altitude_m: f32) -> Result<String, LinkError> {
         let (id, vehicle_type) = self.target()?;

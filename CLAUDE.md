@@ -64,13 +64,15 @@ rust/
     params/          — ParamTable, .param file parse/format, natural sort (pure, no I/O)
     mission/         — MissionItem and the QGC WPL 110 `.waypoints` parser/formatter (pure)
     mavftp/          — MAVFTP wire format: frame encode/decode, NAK codes, directory listing parser, ArduPilot CRC32 (pure)
+    firmware/        — firmware manifest, .apj images and the serial bootloader protocol (pure)
     commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list)
     dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
     link/            — LinkManager (one connection, vehicles, stats, ACK-checked commands, packet bus, AUTO scan, log Replay)
                        plus services built on its public API: ParamService (download/set/metadata), CalibrationService,
                        InspectorService (per-message stats, decoded fields, watched series), MissionService
                        (mission/fence/rally upload, download, clear), FtpService (MAVFTP list/read/write/remove/mkdir/
-                       rename/CRC; also feeds ParamService's fast `param.pck` download)
+                       rename/CRC; also feeds ParamService's fast `param.pck` download), FirmwareService (manifest/.apj download,
+                       bootloader identify and flash)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -100,8 +102,8 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 ### Current limitations
 
 Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
-Tuning, MAVLink Inspector, mission planning). Phase 4 is half done: MAVFTP is implemented, firmware
-flashing is still a placeholder (see HANDOFF.md).
+Tuning, MAVLink Inspector, mission planning). Phase 4 is implemented: MAVFTP and firmware
+flashing (see HANDOFF.md; flashing has only been tested against a fake bootloader).
 Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration/mission flows are
 covered only by loopback and Replay tests, not by hardware.
 

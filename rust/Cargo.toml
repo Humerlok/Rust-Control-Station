@@ -10,6 +10,7 @@ members = [
   "crates/params",
   "crates/mission",
   "crates/mavftp",
+  "crates/firmware",
   "crates/link",
   "desktop/src-tauri",
 ]

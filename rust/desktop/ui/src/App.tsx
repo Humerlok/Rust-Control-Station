@@ -9,12 +9,13 @@ import { ExtendedTuning } from "./views/ExtendedTuning";
 import { FlightData } from "./views/FlightData";
 import { FlightPlan } from "./views/FlightPlan";
 import { Inspector } from "./views/Inspector";
+import { Firmware } from "./views/Firmware";
 import { MavFtp } from "./views/MavFtp";
 import { Parameters } from "./views/Parameters";
 import { Placeholder } from "./views/Placeholder";
 
 // Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
-const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector"];
+const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -92,6 +93,9 @@ export function App() {
         </div>
         <div className="view" hidden={view !== "mavftp"}>
           <MavFtp connected={connected} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "firmware"}>
+          <Firmware connected={connected} notify={notify} />
         </div>
         <div className="view" hidden={view !== "inspector"}>
           <Inspector active={view === "inspector"} notify={notify} />

@@ -98,6 +98,16 @@ pub fn reboot(target: VehicleId) -> MavMessage {
     )
 }
 
+/// Reboots into the bootloader and stays there until firmware is flashed or the bootloader
+/// is told to boot (`MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN` with param1 = 3).
+pub fn reboot_to_bootloader(target: VehicleId) -> MavMessage {
+    command_long(
+        target,
+        MavCmd::MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN,
+        [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    )
+}
+
 pub fn mission_set_current(target: VehicleId, seq: u16) -> MavMessage {
     MavMessage::MISSION_SET_CURRENT(MISSION_SET_CURRENT_DATA {
         seq,
@@ -306,6 +316,14 @@ mod tests {
         let c = long(&msg);
         assert_eq!(c.command, MavCmd::MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN);
         assert_eq!(c.param1, 1.0);
+    }
+
+    #[test]
+    fn reboot_to_bootloader_uses_param1_3() {
+        let msg = reboot_to_bootloader(TARGET);
+        let c = long(&msg);
+        assert_eq!(c.command, MavCmd::MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN);
+        assert_eq!(c.param1, 3.0);
     }
 
     #[test]

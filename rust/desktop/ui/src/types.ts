@@ -41,7 +41,7 @@ export type StatusText = {
   componentId: number;
 };
 
-export type SerialPortInfo = { name: string; description: string };
+export type SerialPortInfo = { name: string; description: string; vid?: number | null; pid?: number | null };
 export type FieldInfo = { key: string; label: string; unit: string };
 export type ActionInfo = { name: string; label: string; confirm: boolean; danger: boolean };
 
@@ -210,6 +210,57 @@ export type FtpEntry = {
 export type FtpProgress = {
   op: string;
   path: string;
+  done: number;
+  total: number;
+  finished: boolean;
+  error: string | null;
+};
+
+export type BoardSummary = { boardId: number; platform: string; brandName: string; manufacturer: string };
+
+export type FirmwareBuild = {
+  boardId: number | null;
+  platform: string;
+  vehicleType: string;
+  format: string;
+  url: string;
+  version: string;
+  /** OFFICIAL, BETA or DEV. */
+  versionType: string;
+  latest: boolean;
+  gitSha: string;
+  brandName: string;
+};
+
+export type FirmwareQuery = {
+  boardId?: number;
+  vehicleType?: string;
+  versionType?: string;
+  latestOnly?: boolean;
+};
+
+export type LoadedFirmware = {
+  boardId: number;
+  description: string;
+  version: string;
+  gitHash: string;
+  size: number;
+};
+
+export type BoardInfo = {
+  bootloaderRev: number;
+  boardId: number;
+  boardRev: number;
+  flashSize: number;
+  extfSize: number;
+  chip: number | null;
+  chipDescription: string | null;
+  serial: string | null;
+};
+
+export type FlashProgress = {
+  /** sync, identify, erase, program, verify, reboot, done */
+  phase: string;
   done: number;
   total: number;
   finished: boolean;

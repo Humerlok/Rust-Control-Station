@@ -9,6 +9,7 @@ import type {
 } from "./types";
 import { emptyLink, emptyTelemetry } from "./types";
 import { createInspectorMock } from "./mockInspector";
+import { createFirmwareMock } from "./mockFirmware";
 import { createFtpMock } from "./mockFtp";
 import { createMissionMock } from "./mockMission";
 import { createPhase2Mock } from "./mockPhase2";
@@ -280,5 +281,6 @@ export function createMockBackend(): Backend {
     ...createInspectorMock(),
     ...createMissionMock(),
     ...createFtpMock(),
+    ...createFirmwareMock(),
   };
 }

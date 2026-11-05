@@ -18,6 +18,7 @@ control-station-dataflash = { path = "../dataflash" }
 control-station-params = { path = "../params" }
 control-station-mission = { path = "../mission" }
 control-station-mavftp = { path = "../mavftp" }
+control-station-firmware = { path = "../firmware" }
 num-traits = "0.2"
 
 [dev-dependencies]

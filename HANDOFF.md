@@ -2,9 +2,15 @@
 
 ## Current state (2026-11-05)
 
-Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-3 are committed (`6535baf80`, `27fb0aa42`, `dc597b77b`). **Phase 4 is half done: MAVFTP is implemented and verified but uncommitted; Firmware (the other half) is not started.** The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine; this section and "Next" below are what remains of it.
+Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-3 are committed (`6535baf80`, `27fb0aa42`, `dc597b77b`). **Phase 4 is implemented: MAVFTP (4a) and Firmware (4b) are written and pass tests but are uncommitted; neither has been run against real hardware.** The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine; this section and "Next" below are what remains of it.
 
-**Phase 4a, MAVFTP** (this change):
+**Phase 4b, Firmware**:
+- `firmware` crate (pure): `manifest` (manifest.json.gz parse, `select` by board/vehicle/channel, `boards`, `is_trusted_url` = firmware.ardupilot.org only), `apj` (JSON + base64 + zlib image, padded to 4 bytes, size checks), `bootloader` (request bytes, status check, bootloader CRC32 and `crc32_pad`, `boards_compatible`; board 33 accepts fmuv2/9 images).
+- `link::FirmwareService`: `catalog`, `download` (trusted URL only), `reboot_to_bootloader` (MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN param1=3, then drops the link), `identify(port)` (read-only), `flash(port, firmware)`, `cancel`, `flash-progress` events. Flash order: sync, GET_DEVICE, then every refusal that exists happens BEFORE the erase (board id mismatch, external flash image, unknown or too small flash), then chip erase, PROG_MULTI 252 B chunks, GET_CRC compared with the CRC of image + erased flash (a mismatch does not reboot), reboot. Refuses to run while the MAVLink link is connected. No board-id override exists.
+- Desktop: `firmware_*` commands (the decoded image stays in Rust, `FirmwareState`), Firmware screen (list, board/vehicle/channel, download or local `.apj`, reboot to bootloader, port + identify, mismatch banner, danger confirm, progress, cancel). `mockFirmware.ts` backs `?mock=1`. `transport::SerialPortInfo` gained `vid`/`pid`.
+- Tests: 15 unit tests in the crate and 6 integration tests (`link/tests/firmware.rs`) against an in-memory fake bootloader: happy path (image byte-exact, erased, rebooted), wrong board and oversized image refused with no erase, CRC mismatch not rebooted, silence gives a timeout, untrusted URL refused.
+
+**Phase 4a, MAVFTP**:
 - `mavftp` crate (pure): frame encode/decode (12 byte header + 239 data), opcodes, NAK -> `FtpError`, `parse_listing` (plain and `ListDirectoryWithTime`), `crc32` (ArduPilot variant: reflected 0xEDB88320, init 0, no final xor, *not* zlib).
 - `params::unpack_param_pck` decodes `@PARAM/param.pck` (magic 0x671b/0x671c, common-prefix names, pad bytes; embedded defaults are skipped).
 - `link::FtpService`: list (timed listing with automatic fallback, remembered), read (burst read, re-requests from the first missing byte, falls back to plain `ReadFile` when the vehicle NAKs burst), write (CreateFile + 80 byte WriteFile + optional CRC32 verification), remove/mkdir/rmdir/rename/crc32, cancel, `ftp-progress` events, one operation at a time (`Busy`). Replies are matched on `req_opcode` and `seq + 1`.
@@ -56,9 +62,13 @@ Launch the desktop app (see "Linux / Jetson" below), connect (UDP/serial/TCP), o
 - Parameters/Calibration/Extended Tuning limitations from Phase 2 remain (no reset-to-default, Copter-only tuning). The `param.pck` fast download now exists but is untested on a real vehicle.
 - The Inspector view shows a ~81 px horizontal overflow at 1024 px width whose source was not found.
 
-## Next: Phase 4b, Firmware (stop after it)
+## Firmware: not verified (needs a real board)
 
-Firmware (manifest `firmware.ardupilot.org/manifest.json.gz`, board detection by USB ID and bootloader `GET_DEVICE`, `.apj` flashing via the px4/ArduPilot bootloader protocol with reboot-to-bootloader). Flashing can brick a board: explicit confirmations, `board_id` check, no automated test on real hardware. Keep the protocol in a pure crate and the I/O in `link` or a sibling service, like MAVFTP.
+Never flashed a real board. The Firmware screen was only built (`npm run build`, lint), not opened in a browser or window. Unverified: bootloader timing (sync tries, 60 s erase timeout), optional GET_CHIP/GET_CHIP_DES/GET_SN on real bootloaders, reboot-to-bootloader across boards (USB port name/id often changes after the reboot; the screen refreshes ports after 3 s), the manifest `USBID` auto-detection (parsed, but the UI does not match boards by USB id yet; vid/pid are exposed on ports), boards with external flash (refused), and `.apj` download from the real server. First test with a spare board, props off, and report the board, bootloader revision and any error text.
+
+## Next
+
+Commit Phase 4 (MAVFTP + Firmware), test both on hardware, then pick the next phase from the legacy app (logs, SITL, more setup screens). Optional firmware follow-ups: auto-select the board from USB ids, ArduPilot `.abin`/PX4 `.px4` files, external flash images.
 
 ## Working rules
 
