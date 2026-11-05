@@ -8,6 +8,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::{
+    dronecan_inspector::{
+        DroneCanInspector, KIND_BROADCAST, KIND_REQUEST, KIND_RESPONSE, SNAPSHOT_INTERVAL,
+    },
+    inspector::InspectorSnapshot,
+};
 use control_station_commands as commands;
 use control_station_dronecan::{
     image::app_descriptor_crc,
@@ -295,6 +301,9 @@ struct Shared {
     timing: DroneCanTiming,
     inner: Mutex<Inner>,
     events: broadcast::Sender<DroneCanState>,
+    /// The DroneCAN inspector: separate from the state so busy buses never touch the node table.
+    inspector: Mutex<DroneCanInspector>,
+    inspector_events: broadcast::Sender<InspectorSnapshot>,
     receivers: Mutex<Option<Receivers>>,
 }
 
@@ -364,6 +373,7 @@ impl DroneCanService {
             allocation: index("uavcan.protocol.dynamic_node_id.Allocation"),
         };
         let (events, _) = broadcast::channel(64);
+        let (inspector_events, _) = broadcast::channel(64);
         let receivers = (link.subscribe_packets(), link.subscribe());
         let now = Instant::now();
         Self {
@@ -393,6 +403,8 @@ impl DroneCanService {
                     started: now,
                 }),
                 events,
+                inspector: Mutex::new(DroneCanInspector::new(now)),
+                inspector_events,
                 receivers: Mutex::new(Some(receivers)),
             }),
         }
@@ -469,6 +481,7 @@ impl DroneCanService {
             inner.busy_nodes.clear();
             inner.update = None;
             inner.allocator = Allocator::default();
+            self.inspector_lock().disable(Instant::now());
             self.emit(&mut inner);
             inner.target
         };
@@ -536,6 +549,7 @@ impl DroneCanService {
                         }
                         self.ask_for_node_info().await;
                     }
+                    self.emit_inspector(now);
                     self.expire_update(now);
                     self.housekeeping(now);
                 }
@@ -625,6 +639,7 @@ impl DroneCanService {
     async fn handle_transfer(&self, transfer: Transfer, fd: bool) {
         let catalog = self.shared.catalog;
         let types = &self.shared.types;
+        self.inspect(&transfer, fd);
         let Some(index) = self.type_index(&transfer.kind) else {
             return;
         };
@@ -1591,5 +1606,102 @@ impl DroneCanService {
             payload,
         };
         let _ = self.send_transfer(transfer, def.signature).await;
+    }
+}
+
+// ---- the DroneCAN inspector ----
+
+impl DroneCanService {
+    fn inspector_lock(&self) -> std::sync::MutexGuard<'_, DroneCanInspector> {
+        self.shared
+            .inspector
+            .lock()
+            .expect("dronecan inspector lock")
+    }
+
+    /// Snapshots of the inspector, about four per second while it is enabled.
+    pub fn subscribe_inspector(&self) -> broadcast::Receiver<InspectorSnapshot> {
+        self.shared.inspector_events.subscribe()
+    }
+
+    /// Starts or stops counting transfers; enabling resets the counters and the series time base.
+    pub fn inspector_enable(&self, enabled: bool) {
+        let mut inspector = self.inspector_lock();
+        if enabled {
+            inspector.enable(Instant::now());
+        } else {
+            inspector.disable(Instant::now());
+        }
+    }
+
+    /// Starts recording a numeric field: `node/kind/typeId/field` or `.../field[3]`, where kind is
+    /// 0 for broadcasts, 1 for service requests and 2 for responses.
+    pub fn inspector_watch(&self, key: &str) -> Result<(), String> {
+        self.inspector_lock().watch(key)
+    }
+
+    pub fn inspector_unwatch(&self, key: &str) {
+        self.inspector_lock().unwatch(key);
+    }
+
+    pub fn inspector_clear(&self) {
+        self.inspector_lock().clear(Instant::now());
+    }
+
+    /// Counts a transfer that came off the bus, whoever it is for.
+    fn inspect(&self, transfer: &Transfer, fd: bool) {
+        if !self.inspector_lock().enabled {
+            return;
+        }
+        let catalog = self.shared.catalog;
+        let (kind, id, side, def) = match transfer.kind {
+            TransferKind::Message { type_id } => (
+                KIND_BROADCAST,
+                u32::from(type_id),
+                Side::Message,
+                catalog.message(type_id),
+            ),
+            TransferKind::Request { service_id, .. } => (
+                KIND_REQUEST,
+                u32::from(service_id),
+                Side::Request,
+                catalog.service(u16::from(service_id)),
+            ),
+            TransferKind::Response { service_id, .. } => (
+                KIND_RESPONSE,
+                u32::from(service_id),
+                Side::Response,
+                catalog.service(u16::from(service_id)),
+            ),
+        };
+        let (name, value) = match def {
+            Some(def) => {
+                let name: &'static str = def.full_name.rsplit('.').next().unwrap_or(&def.full_name);
+                let value = catalog
+                    .index_of(&def.full_name)
+                    .and_then(|index| catalog.decode(index, side, &transfer.payload, !fd).ok());
+                (name, value)
+            }
+            None => ("unknown", None),
+        };
+        self.inspector_lock().on_transfer(
+            (transfer.source, kind, id),
+            name,
+            transfer.payload.len(),
+            value,
+            Instant::now(),
+        );
+    }
+
+    fn emit_inspector(&self, now: Instant) {
+        let snapshot = {
+            let mut inspector = self.inspector_lock();
+            if !inspector.enabled || now.duration_since(inspector.last_emit) < SNAPSHOT_INTERVAL {
+                return;
+            }
+            inspector.last_emit = now;
+            inspector.snapshot(now)
+        };
+        let _ = self.shared.inspector_events.send(snapshot);
     }
 }

@@ -33,7 +33,14 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - Frames outside the layout table (heli, scripting matrix class 17, coaxial...) get generic motors A, B, C...: the screen names the unknown class/type and offers a "Number of motors" field (1-12, passed to `MotorTestService::frame` as `generic_count`). Output number and rotation are unknown for those.
 - Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
 
-## Phase 6b: node firmware update and node id allocation (implemented, uncommitted)
+## Phase 6c: DroneCAN Inspector (implemented, uncommitted)
+
+- `link::dronecan_inspector` (used by `DroneCanService`): every transfer that comes off the bus is counted per (source node, kind, type id) with count, rate and payload bandwidth over a 3 s window, the last decoded value flattened to rows (`status.health`, a union under its variant such as `value.integer_value`, arrays of numbers as arrays, byte arrays that read as text shown as strings, arrays of structs as `cells[0].volts`) and watched numeric fields recorded as series (`node/kind/typeId/field`, arrays as `field[3]`). Kind is 0 broadcast, 1 service request, 2 service response; the node is the "system", the kind the "component". It emits the same `InspectorSnapshot` as the MAVLink inspector (types and `parse_key` are shared), about four per second and only while enabled; stopping DroneCAN disables it. Our own frames are not echoed by the autopilot, so requests we send do not show, only what the bus carries.
+- Desktop: `dronecan_inspector_{enable,watch,unwatch,clear}`, event `dronecan-inspector`. The DroneCAN screen has Nodes and Inspector tabs; the inspector reuses the MAVLink inspector's tree, field table, pinning, search, graph and copy through `InspectorPanel` (`views/Inspector.tsx`, with `originLabel`, `emptyText`, `storagePrefix`) and an `InspectorSource` (`components/inspector/useInspector.ts`), so the MAVLink screen is unchanged. Mock traffic in `mockDroneCan.ts`.
+- Tested: 6 unit tests for the inspector module, 2 more loopback tests in `link/tests/dronecan.rs` (17 in all: counts and decoded fields per node and kind, the series, off means silent, clear, stop disables), the mock flow in a browser including the MAVLink inspector still working.
+- Not done: the legacy stats popup (its `dronecan.protocol.Stats`/`CanStats` messages show in the inspector when a node sends them) and the message filter (`CAN_FILTER_MODIFY`, which only saves link bandwidth; how ArduPilot treats an empty filter was not verified, so every frame is still forwarded). Subscribe-style JSON dump is covered by Copy JSON.
+
+## Phase 6b: node firmware update and node id allocation (committed `4523c7fe0`)
 
 - `dronecan::image::app_descriptor_crc`: the 64-bit image CRC after the AP_Periph descriptor signature (`D7 E4 F7 BA D0 0F 9B EE` or `40 A2 E4 F1 64 68 91 06`), the value a node reports as `image_crc`.
 - `DroneCanService::start_update(node, bytes, force)`: accepts an `.apj` (decoded with `firmware::parse_apj`) or a raw `.bin`; refuses when the vehicle is armed, the node is offline or busy, or another update runs; does nothing (with a message) when the image CRC equals the node's unless `force`; sends `BeginFirmwareUpdate` (source node 127, path `fw.bin`, `ERROR_OK` and `ERROR_IN_PROGRESS` accepted, a node already in `SOFTWARE_UPDATE` is not asked again) and then serves the node's `file.Read` requests (256 bytes per answer, aliases `fw.bin`/`fw.bi`, `NOT_FOUND` otherwise). The update ends `Done` when the last chunk is read, or `Failed` when the node never asks (30 s), stalls (10 s, both in `DroneCanTiming`), refuses, or the user cancels. Progress is `DroneCanState.update`. The node is not re-verified after it reboots.
@@ -53,7 +60,7 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 
 ## Next planned
 
-6c: DroneCAN Inspector (node -> message tree with Hz and bytes/s, decoded fields, graph, subscribe), stats popup and message filter. See the plan file.
+Phase 6 is complete apart from the items listed under 6c. Candidates: test DroneCAN on a real CAN bus and peripheral, download peripheral firmware from the ArduPilot server, verify the node CRC after an update, the message filter, SLCAN/multicast transports. See the plan file for what was left out on purpose.
 
 ## Verified
 

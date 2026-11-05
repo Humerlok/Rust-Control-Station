@@ -93,3 +93,28 @@ pub fn dronecan_set_allocation(
 ) -> Result<String, String> {
     text(service.set_allocation(enabled))
 }
+
+/// Starts or stops counting DroneCAN transfers; enabling resets the counters.
+#[tauri::command]
+pub fn dronecan_inspector_enable(enabled: bool, service: State<'_, DroneCanService>) {
+    service.inspector_enable(enabled);
+}
+
+/// Starts recording a numeric field: `node/kind/typeId/field` or `field[3]`.
+#[tauri::command]
+pub fn dronecan_inspector_watch(
+    key: String,
+    service: State<'_, DroneCanService>,
+) -> Result<(), String> {
+    service.inspector_watch(&key)
+}
+
+#[tauri::command]
+pub fn dronecan_inspector_unwatch(key: String, service: State<'_, DroneCanService>) {
+    service.inspector_unwatch(&key);
+}
+
+#[tauri::command]
+pub fn dronecan_inspector_clear(service: State<'_, DroneCanService>) {
+    service.inspector_clear();
+}

@@ -1,6 +1,10 @@
 import type { Backend, Unlisten } from "./api";
 import {
   idleDroneCan,
+  type InspectorField,
+  type InspectorMessage,
+  type InspectorPoint,
+  type InspectorSnapshot,
   type DroneCanAllocation,
   type DroneCanLog,
   type DroneCanNode,
@@ -27,8 +31,104 @@ type DroneCanMock = Pick<
   | "dronecanUpdateFirmware"
   | "dronecanCancelUpdate"
   | "dronecanSetAllocation"
+  | "dronecanInspectorEnable"
+  | "dronecanInspectorWatch"
+  | "dronecanInspectorUnwatch"
+  | "dronecanInspectorClear"
   | "onDroneCan"
+  | "onDroneCanInspector"
 > & { reset: () => void };
+
+type TrafficSpec = {
+  node: number;
+  kind: 0 | 1 | 2;
+  id: number;
+  name: string;
+  hz: number;
+  bytes: number;
+  fields: (t: number) => InspectorField[];
+};
+
+/** The simulated traffic of the two mock nodes. */
+const TRAFFIC: TrafficSpec[] = [
+  {
+    node: 10,
+    kind: 0,
+    id: 341,
+    name: "NodeStatus",
+    hz: 1,
+    bytes: 7,
+    fields: (t) => [
+      { name: "uptime_sec", value: 3600 + Math.floor(t) },
+      { name: "health", value: 0 },
+      { name: "mode", value: 0 },
+      { name: "sub_mode", value: 0 },
+      { name: "vendor_specific_status_code", value: 0 },
+    ],
+  },
+  {
+    node: 10,
+    kind: 0,
+    id: 1063,
+    name: "Fix2",
+    hz: 10,
+    bytes: 40,
+    fields: (t) => [
+      { name: "latitude_deg_1e8", value: -2054756450 + Math.round(Math.sin(t / 5) * 3000) },
+      { name: "longitude_deg_1e8", value: -4742026140 + Math.round(Math.cos(t / 5) * 3000) },
+      { name: "height_msl_mm", value: 580_000 + Math.round(Math.sin(t) * 1500) },
+      { name: "sats_used", value: 14 },
+      { name: "pdop", value: 1.1 + Math.abs(Math.sin(t / 7)) * 0.4 },
+      { name: "ned_velocity", value: [Math.sin(t) * 2, Math.cos(t) * 2, 0.1] },
+    ],
+  },
+  {
+    node: 20,
+    kind: 0,
+    id: 341,
+    name: "NodeStatus",
+    hz: 1,
+    bytes: 7,
+    fields: (t) => [
+      { name: "uptime_sec", value: 3600 + Math.floor(t) },
+      { name: "health", value: 0 },
+      { name: "mode", value: 0 },
+      { name: "sub_mode", value: 0 },
+      { name: "vendor_specific_status_code", value: 0 },
+    ],
+  },
+  {
+    node: 20,
+    kind: 0,
+    id: 1034,
+    name: "Status",
+    hz: 50,
+    bytes: 16,
+    fields: (t) => [
+      { name: "error_count", value: 0 },
+      { name: "voltage", value: 22.1 - Math.abs(Math.sin(t / 9)) * 0.3 },
+      { name: "current", value: 12 + Math.sin(t * 2) * 3 },
+      { name: "temperature", value: 311.5 },
+      { name: "rpm", value: 5200 + Math.round(Math.sin(t * 3) * 300) },
+      { name: "power_rating_pct", value: 38 },
+      { name: "esc_index", value: 0 },
+    ],
+  },
+  {
+    node: 10,
+    kind: 2,
+    id: 1,
+    name: "GetNodeInfo",
+    hz: 0.1,
+    bytes: 90,
+    fields: () => [
+      { name: "status.uptime_sec", value: 3600 },
+      { name: "software_version.major", value: 1 },
+      { name: "software_version.minor", value: 4 },
+      { name: "name", value: "com.hex.here3" },
+    ],
+  },
+];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const int = (value: number): NodeParamValue => ({ type: "integer", value });
@@ -74,6 +174,56 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
   let updateTimer: ReturnType<typeof setInterval> | null = null;
   let allocationEnabled = false;
   const allocations: DroneCanAllocation[] = [];
+
+  // The inspector: counters that grow at each simulated message rate.
+  const inspectorListeners = new Set<(s: InspectorSnapshot) => void>();
+  const inspectorWatches = new Set<string>();
+  let inspectorTimer: ReturnType<typeof setInterval> | null = null;
+  let inspectorStart = 0;
+  let inspectorCounts: number[] = TRAFFIC.map(() => 0);
+  const INSPECTOR_PERIOD_MS = 250;
+
+  function stopInspector() {
+    if (inspectorTimer) clearInterval(inspectorTimer);
+    inspectorTimer = null;
+  }
+
+  function inspectorSnapshot(): InspectorSnapshot {
+    const t = (Date.now() - inspectorStart) / 1000;
+    const series: Record<string, InspectorPoint[]> = {};
+    const messages: InspectorMessage[] = TRAFFIC.map((spec, i) => {
+      const step = (spec.hz * INSPECTOR_PERIOD_MS) / 1000;
+      inspectorCounts[i] += Math.max(step, Math.random() < step ? 1 : 0);
+      const fields = spec.fields(t);
+      const samples = Math.min(5, Math.max(1, Math.round(step)));
+      for (const key of inspectorWatches) {
+        const [node, kind, id, ...rest] = key.split("/");
+        if (Number(node) !== spec.node || Number(kind) !== spec.kind || Number(id) !== spec.id) continue;
+        const field = rest.join("/");
+        const match = /^(.*)\[(\d+)\]$/.exec(field);
+        const row = fields.find((f) => f.name === (match ? match[1] : field));
+        const raw = row ? (match && Array.isArray(row.value) ? row.value[Number(match[2])] : row.value) : undefined;
+        if (typeof raw !== "number") continue;
+        series[key] = Array.from({ length: samples }, (_, s): InspectorPoint => [
+          (t - ((samples - 1 - s) * INSPECTOR_PERIOD_MS) / samples / 1000) * 1000,
+          raw,
+        ]);
+      }
+      return {
+        systemId: spec.node,
+        componentId: spec.kind,
+        componentName: ["Broadcast", "Service requests", "Service responses"][spec.kind],
+        messageId: spec.id,
+        name: spec.name,
+        count: Math.floor(inspectorCounts[i]),
+        hz: spec.hz,
+        bytesPerSecond: spec.hz * spec.bytes,
+        ageMs: Math.round(Math.random() * (1000 / Math.max(spec.hz, 1))),
+        fields,
+      };
+    });
+    return { messages, series };
+  }
 
   const requireRunning = () => {
     if (!state.active) throw "DroneCAN is not running; connect to a CAN bus first";
@@ -131,6 +281,8 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
   return {
     reset() {
       stopTimer();
+      stopInspector();
+      inspectorWatches.clear();
       stopUpdate();
       update = null;
       allocationEnabled = false;
@@ -151,8 +303,37 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
       timer = setInterval(() => push(build(bus)), 1000);
       return `Relaying CAN${bus}`;
     },
+    async dronecanInspectorEnable(enabled) {
+      stopInspector();
+      if (!enabled) return;
+      inspectorStart = Date.now();
+      inspectorCounts = TRAFFIC.map(() => 0);
+      inspectorTimer = setInterval(() => {
+        if (state.active) {
+          const snapshot = inspectorSnapshot();
+          inspectorListeners.forEach((cb) => cb(snapshot));
+        }
+      }, INSPECTOR_PERIOD_MS);
+    },
+    async dronecanInspectorWatch(key) {
+      if (key.split("/").length < 4) throw `malformed watch key '${key}' (expected node/kind/message/field)`;
+      inspectorWatches.add(key);
+    },
+    async dronecanInspectorUnwatch(key) {
+      inspectorWatches.delete(key);
+    },
+    async dronecanInspectorClear() {
+      inspectorCounts = TRAFFIC.map(() => 0);
+    },
+    async onDroneCanInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten> {
+      inspectorListeners.add(cb);
+      return () => {
+        inspectorListeners.delete(cb);
+      };
+    },
     async dronecanStop() {
       stopTimer();
+      stopInspector();
       stopUpdate();
       update = null;
       allocationEnabled = false;

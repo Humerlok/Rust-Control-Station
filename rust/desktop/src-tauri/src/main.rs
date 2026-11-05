@@ -234,6 +234,23 @@ fn main() {
             let mut dronecan_events = dronecan.subscribe();
             app.manage(dronecan.clone());
             let dronecan_handle = handle.clone();
+            let mut dronecan_inspector_events = dronecan.subscribe_inspector();
+            let dronecan_inspector_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match dronecan_inspector_events.recv().await {
+                        Ok(snapshot) => {
+                            if let Err(error) =
+                                dronecan_inspector_handle.emit("dronecan-inspector", snapshot)
+                            {
+                                eprintln!("failed to emit dronecan-inspector: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
             tauri::async_runtime::spawn(async move { dronecan.run().await });
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -410,6 +427,10 @@ fn main() {
             dronecan_cmds::dronecan_update_firmware,
             dronecan_cmds::dronecan_cancel_update,
             dronecan_cmds::dronecan_set_allocation,
+            dronecan_cmds::dronecan_inspector_enable,
+            dronecan_cmds::dronecan_inspector_watch,
+            dronecan_cmds::dronecan_inspector_unwatch,
+            dronecan_cmds::dronecan_inspector_clear,
             inspector_cmds::inspector_enable,
             inspector_cmds::inspector_watch,
             inspector_cmds::inspector_unwatch,

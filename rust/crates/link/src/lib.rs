@@ -2,6 +2,7 @@
 //! and sends commands with ACK handling. The desktop shell talks only to [`LinkManager`].
 mod calibration;
 mod dronecan;
+mod dronecan_inspector;
 mod firmware;
 mod ftp;
 mod inspector;

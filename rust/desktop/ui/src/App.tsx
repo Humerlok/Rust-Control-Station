@@ -117,7 +117,7 @@ export function App() {
           <MotorTest telemetry={telemetry} active={view === "motor-test"} notify={notify} />
         </div>
         <div className="view" hidden={view !== "dronecan"}>
-          <DroneCan telemetry={telemetry} notify={notify} />
+          <DroneCan telemetry={telemetry} active={view === "dronecan"} notify={notify} />
         </div>
         <div className="view" hidden={view !== "parameters"}>
           <Parameters notify={notify} />

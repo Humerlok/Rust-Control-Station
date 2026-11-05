@@ -94,6 +94,8 @@ type Props = {
   onSelect: (key: string) => void;
   pinnedKeys: Set<string>;
   onPin: (key: string) => void;
+  /** What the first level of the tree is called ("System" for MAVLink, "Node" for DroneCAN). */
+  originLabel?: string;
 };
 
 export function MessageTree({
@@ -107,10 +109,11 @@ export function MessageTree({
   onSelect,
   pinnedKeys,
   onPin,
+  originLabel = "System",
 }: Props) {
   const isOpen = (key: string) => searching || !collapsed.has(key);
   return (
-    <div className="insp-tree" role="tree" aria-label="MAVLink messages">
+    <div className="insp-tree" role="tree" aria-label="Messages">
       {(pinnedMessages.length > 0 || missingPinned > 0) && (
         <div className="insp-section">
           <div className="insp-section-title">Pinned</div>
@@ -138,7 +141,7 @@ export function MessageTree({
             onClick={() => onToggle(system.key)}
           >
             <span className="insp-caret">{isOpen(system.key) ? "▾" : "▸"}</span>
-            System {system.systemId}
+            {originLabel} {system.systemId}
           </button>
           {isOpen(system.key) &&
             system.components.map((component) => (

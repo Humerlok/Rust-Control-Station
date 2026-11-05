@@ -5,6 +5,31 @@ import { SeriesStore } from "./seriesStore";
 
 type Notify = (text: string, ok: boolean) => void;
 
+/** Where an inspector gets its snapshots from: the MAVLink link or the DroneCAN bus. */
+export type InspectorSource = {
+  on(cb: (snapshot: InspectorSnapshot) => void): Promise<Unlisten>;
+  enable(enabled: boolean): Promise<void>;
+  watch(key: string): Promise<void>;
+  unwatch(key: string): Promise<void>;
+  clear(): Promise<void>;
+};
+
+export const mavlinkSource: InspectorSource = {
+  on: (cb) => api.onInspector(cb),
+  enable: (enabled) => api.inspectorEnable(enabled),
+  watch: (key) => api.inspectorWatch(key),
+  unwatch: (key) => api.inspectorUnwatch(key),
+  clear: () => api.inspectorClear(),
+};
+
+export const droneCanSource: InspectorSource = {
+  on: (cb) => api.onDroneCanInspector(cb),
+  enable: (enabled) => api.dronecanInspectorEnable(enabled),
+  watch: (key) => api.dronecanInspectorWatch(key),
+  unwatch: (key) => api.dronecanInspectorUnwatch(key),
+  clear: () => api.dronecanInspectorClear(),
+};
+
 /**
  * Talks to the backend while the screen is active: enables the stream, keeps the watched series
  * in a [`SeriesStore`] (outside React state) and releases every watch when the screen goes away.
@@ -12,7 +37,7 @@ type Notify = (text: string, ok: boolean) => void;
  * Pausing freezes the message list; the graph freezes with it (see GraphPanel) but series keep
  * being recorded, so resuming shows the whole history without a gap.
  */
-export function useInspector(active: boolean, notify: Notify) {
+export function useInspector(active: boolean, notify: Notify, source: InspectorSource = mavlinkSource) {
   const [store] = useState(() => new SeriesStore());
   const [messages, setMessages] = useState<InspectorMessage[]>([]);
   const [paused, setPaused] = useState(false);
@@ -39,16 +64,16 @@ export function useInspector(active: boolean, notify: Notify) {
 
     (async () => {
       try {
-        const off = await api.onInspector(handle);
+        const off = await source.on(handle);
         if (disposed) {
           off();
           return;
         }
         unlisten = off;
-        await api.inspectorEnable(true);
+        await source.enable(true);
         for (const key of watchedRef.current) {
           store.track(key);
-          await api.inspectorWatch(key);
+          await source.watch(key);
         }
       } catch (error) {
         notifyRef.current(`Inspector: ${String(error)}`, false);
@@ -58,10 +83,10 @@ export function useInspector(active: boolean, notify: Notify) {
     return () => {
       disposed = true;
       unlisten?.();
-      void api.inspectorEnable(false).catch(() => undefined);
-      for (const key of watchedRef.current) void api.inspectorUnwatch(key).catch(() => undefined);
+      void source.enable(false).catch(() => undefined);
+      for (const key of watchedRef.current) void source.unwatch(key).catch(() => undefined);
     };
-  }, [active, store]);
+  }, [active, store, source]);
 
   const togglePause = useCallback(() => {
     pausedRef.current = !pausedRef.current;
@@ -73,9 +98,9 @@ export function useInspector(active: boolean, notify: Notify) {
       watchedRef.current = watchedRef.current.filter((k) => k !== key);
       setWatched(watchedRef.current);
       store.untrack(key);
-      void api.inspectorUnwatch(key).catch(() => undefined);
+      void source.unwatch(key).catch(() => undefined);
     },
-    [store],
+    [store, source],
   );
 
   const toggleWatch = useCallback(
@@ -88,17 +113,17 @@ export function useInspector(active: boolean, notify: Notify) {
       setWatched(watchedRef.current);
       store.track(key);
       if (activeRef.current) {
-        void api.inspectorWatch(key).catch((error) => notifyRef.current(`Graph: ${String(error)}`, false));
+        void source.watch(key).catch((error) => notifyRef.current(`Graph: ${String(error)}`, false));
       }
     },
-    [removeWatch, store],
+    [removeWatch, store, source],
   );
 
   const clearAll = useCallback(() => {
-    void api.inspectorClear().catch((error) => notifyRef.current(`Clear: ${String(error)}`, false));
+    void source.clear().catch((error) => notifyRef.current(`Clear: ${String(error)}`, false));
     store.clear();
     setMessages([]);
-  }, [store]);
+  }, [store, source]);
 
   return { store, messages, paused, watched, togglePause, toggleWatch, removeWatch, clearAll };
 }

@@ -2,12 +2,16 @@ import { useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NodeParamsPanel } from "../components/NodeParamsPanel";
+import { droneCanSource } from "../components/inspector/useInspector";
 import type { DroneCanNode, NodeImageInfo, Telemetry } from "../types";
 import { useDroneCan } from "../useDroneCan";
+import { InspectorPanel } from "./Inspector";
 import "../dronecan.css";
 
 type Props = {
   telemetry: Telemetry;
+  /** The screen is the one being shown. */
+  active: boolean;
   notify: (text: string, ok: boolean) => void;
 };
 
@@ -30,8 +34,9 @@ type PendingUpdate = { node: DroneCanNode; fileName: string; data: string; info:
 const HEALTH_CLASS: Record<string, string> = { OK: "ok", WARNING: "warn", ERROR: "danger", CRITICAL: "danger" };
 const LEVEL_CLASS: Record<string, string> = { ERROR: "sev-error", WARNING: "sev-warn", DEBUG: "sev-dim" };
 
-export function DroneCan({ telemetry, notify }: Props) {
+export function DroneCan({ telemetry, active, notify }: Props) {
   const state = useDroneCan();
+  const [tab, setTab] = useState<"nodes" | "inspector">("nodes");
   const [bus, setBus] = useState(1);
   const [busy, setBusy] = useState(false);
   const [paramsNode, setParamsNode] = useState<number | null>(null);
@@ -116,6 +121,30 @@ export function DroneCan({ telemetry, notify }: Props) {
         as node 127. The CAN port on the autopilot must have a DroneCAN driver enabled (CAN_Pn_DRIVER).
       </p>
 
+      <div className="dc-tabs" role="tablist" aria-label="DroneCAN views">
+        <button role="tab" aria-selected={tab === "nodes"} className={tab === "nodes" ? "active" : ""} onClick={() => setTab("nodes")}>
+          Nodes
+        </button>
+        <button role="tab" aria-selected={tab === "inspector"} className={tab === "inspector" ? "active" : ""} onClick={() => setTab("inspector")}>
+          Inspector
+        </button>
+      </div>
+
+      {tab === "inspector" && (
+        <div className="dc-inspector">
+          <InspectorPanel
+            active={active && tab === "inspector" && state.active}
+            notify={notify}
+            source={droneCanSource}
+            originLabel="Node"
+            emptyText={state.active ? "Waiting for traffic on the CAN bus…" : "Connect to a CAN bus to see its traffic."}
+            storagePrefix="dronecan.inspector"
+          />
+        </div>
+      )}
+
+      {tab === "nodes" && (
+      <>
       <section className="panel">
         <header>
           <h2>Nodes</h2>
@@ -290,6 +319,8 @@ export function DroneCan({ telemetry, notify }: Props) {
           ))}
         </ul>
       </section>
+      </>
+      )}
 
       {restart && (
         <ConfirmDialog

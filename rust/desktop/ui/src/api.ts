@@ -98,6 +98,11 @@ export interface Backend {
   dronecanUpdateFirmware(node: number, dataBase64: string, force: boolean): Promise<string>;
   dronecanCancelUpdate(): Promise<string>;
   dronecanSetAllocation(enabled: boolean): Promise<string>;
+  dronecanInspectorEnable(enabled: boolean): Promise<void>;
+  /** Key: `node/kind/typeId/field` (kind 0 broadcast, 1 request, 2 response), arrays as `field[3]`. */
+  dronecanInspectorWatch(key: string): Promise<void>;
+  dronecanInspectorUnwatch(key: string): Promise<void>;
+  dronecanInspectorClear(): Promise<void>;
   inspectorEnable(enabled: boolean): Promise<void>;
   inspectorWatch(key: string): Promise<void>;
   inspectorUnwatch(key: string): Promise<void>;
@@ -135,6 +140,7 @@ export interface Backend {
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
   onMotorTest(cb: (s: MotorTestState) => void): Promise<Unlisten>;
   onDroneCan(cb: (s: DroneCanState) => void): Promise<Unlisten>;
+  onDroneCanInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onInspector(cb: (s: InspectorSnapshot) => void): Promise<Unlisten>;
   onMissionProgress(cb: (p: MissionProgress) => void): Promise<Unlisten>;
   onFtpProgress(cb: (progress: FtpProgress) => void): Promise<Unlisten>;
@@ -197,6 +203,10 @@ const tauriBackend: Backend = {
   dronecanUpdateFirmware: (node, data, force) => invoke("dronecan_update_firmware", { node, data, force }),
   dronecanCancelUpdate: () => invoke("dronecan_cancel_update"),
   dronecanSetAllocation: (enabled) => invoke("dronecan_set_allocation", { enabled }),
+  dronecanInspectorEnable: (enabled) => invoke("dronecan_inspector_enable", { enabled }),
+  dronecanInspectorWatch: (key) => invoke("dronecan_inspector_watch", { key }),
+  dronecanInspectorUnwatch: (key) => invoke("dronecan_inspector_unwatch", { key }),
+  dronecanInspectorClear: () => invoke("dronecan_inspector_clear"),
   inspectorEnable: (enabled) => invoke("inspector_enable", { enabled }),
   inspectorWatch: (key) => invoke("inspector_watch", { key }),
   inspectorUnwatch: (key) => invoke("inspector_unwatch", { key }),
@@ -231,6 +241,7 @@ const tauriBackend: Backend = {
   onCalibration: subscribe<CalibrationState>("calibration"),
   onMotorTest: subscribe<MotorTestState>("motor-test"),
   onDroneCan: subscribe<DroneCanState>("dronecan"),
+  onDroneCanInspector: subscribe<InspectorSnapshot>("dronecan-inspector"),
   onInspector: subscribe<InspectorSnapshot>("inspector"),
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
   onFtpProgress: subscribe<FtpProgress>("ftp-progress"),

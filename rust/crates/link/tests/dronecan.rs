@@ -1207,3 +1207,141 @@ async fn a_known_node_keeps_its_id_and_ids_in_use_are_never_reused() {
         "needs a running relay"
     );
 }
+
+// ---- the DroneCAN inspector ----
+
+/// Collects inspector snapshots until `enough` says the messages are all there.
+async fn snapshots_until(
+    receiver: &mut tokio::sync::broadcast::Receiver<control_station_link::InspectorSnapshot>,
+    mut enough: impl FnMut(&control_station_link::InspectorSnapshot) -> bool,
+) -> Vec<control_station_link::InspectorSnapshot> {
+    let mut all = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Ok(snapshot)) =
+            tokio::time::timeout(Duration::from_millis(500), receiver.recv()).await
+        {
+            let done = enough(&snapshot);
+            all.push(snapshot);
+            if done {
+                return all;
+            }
+        }
+    }
+    panic!("the inspector never showed what was expected");
+}
+
+#[tokio::test]
+async fn the_inspector_counts_traffic_per_node_and_kind_and_decodes_it() {
+    let rig = started(1).await;
+    let mut receiver = rig.service.subscribe_inspector();
+    rig.service.inspector_enable(true);
+    rig.service.inspector_watch("10/0/341/uptime_sec").unwrap();
+    assert!(rig.service.inspector_watch("nonsense").is_err());
+    // Requests and responses on the bus: the node answers a parameter listing and a write. The
+    // write comes last so the latest GetSet response carries a value.
+    rig.service.list_params(NODE).await.unwrap();
+    rig.service
+        .set_param(NODE, "GPS_TYPE", NodeParamValue::Integer(9))
+        .await
+        .unwrap();
+
+    let snapshots = snapshots_until(&mut receiver, |s| {
+        let has = |node: u8, kind: u8, id: u32| {
+            s.messages
+                .iter()
+                .any(|m| (m.system_id, m.component_id, m.message_id) == (node, kind, id))
+        };
+        has(10, 0, 341) && has(10, 2, 11) && has(10, 0, 16383)
+    })
+    .await;
+    let last = snapshots.last().unwrap();
+    let find = |node: u8, kind: u8, id: u32| {
+        last.messages
+            .iter()
+            .find(|m| (m.system_id, m.component_id, m.message_id) == (node, kind, id))
+            .unwrap_or_else(|| panic!("no message {node}/{kind}/{id}"))
+    };
+    let status = find(10, 0, 341);
+    assert_eq!(
+        (status.name, status.component_name.as_str()),
+        ("NodeStatus", "Broadcast")
+    );
+    assert!(status.hz > 0.0 && status.count >= 1 && status.bytes_per_second > 0.0);
+    let field = |m: &control_station_link::InspectorMessage, name: &str| {
+        m.fields
+            .iter()
+            .find(|f| f.name == name)
+            .map(|f| f.value.clone())
+    };
+    assert_eq!(field(status, "uptime_sec"), Some(serde_json::json!(42)));
+    assert_eq!(field(status, "mode"), Some(serde_json::json!(0)));
+
+    let log = find(10, 0, 16383);
+    assert_eq!(field(log, "text"), Some(serde_json::json!("no fix yet")));
+    assert_eq!(field(log, "level.value"), Some(serde_json::json!(2)));
+
+    let response = find(10, 2, 11);
+    assert_eq!(
+        (response.name, response.component_name.as_str()),
+        ("GetSet", "Service responses")
+    );
+    assert_eq!(field(response, "name"), Some(serde_json::json!("GPS_TYPE")));
+    assert_eq!(
+        field(response, "value.integer_value"),
+        Some(serde_json::json!(9)),
+        "unions show under their variant: {:?}",
+        response.fields
+    );
+
+    // The watched series was recorded and handed out once.
+    let points: Vec<_> = snapshots
+        .iter()
+        .filter_map(|s| s.series.get("10/0/341/uptime_sec"))
+        .flatten()
+        .collect();
+    assert!(!points.is_empty());
+    assert!(points.iter().all(|p| p.1 == 42.0));
+}
+
+#[tokio::test]
+async fn a_disabled_inspector_stays_silent_and_clear_resets_the_counters() {
+    let rig = started(1).await;
+    let mut receiver = rig.service.subscribe_inspector();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(
+        receiver.try_recv().is_err(),
+        "nothing is emitted while it is off"
+    );
+
+    rig.service.inspector_enable(true);
+    let first = snapshots_until(&mut receiver, |s| s.messages.iter().any(|m| m.count >= 20)).await;
+    let before = first
+        .last()
+        .unwrap()
+        .messages
+        .iter()
+        .map(|m| m.count)
+        .max()
+        .unwrap();
+    rig.service.inspector_clear();
+    let after = snapshots_until(&mut receiver, |s| !s.messages.is_empty()).await;
+    let restarted = after
+        .last()
+        .unwrap()
+        .messages
+        .iter()
+        .map(|m| m.count)
+        .max()
+        .unwrap();
+    assert!(
+        restarted < before,
+        "the counters started again ({restarted} after, {before} before)"
+    );
+
+    // Stopping DroneCAN turns the inspector off.
+    rig.service.stop().unwrap();
+    while receiver.try_recv().is_ok() {}
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert!(receiver.try_recv().is_err());
+}

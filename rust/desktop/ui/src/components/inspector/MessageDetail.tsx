@@ -19,6 +19,8 @@ type Props = {
   onToggleWatch: (key: string) => void;
   query: string;
   notify: (text: string, ok: boolean) => void;
+  /** What the origin of a message is called ("System" for MAVLink, "Node" for DroneCAN). */
+  originLabel?: string;
 };
 
 function GraphButton({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
@@ -99,7 +101,16 @@ function FieldRow({
   );
 }
 
-export function MessageDetail({ message, pinned, onPin, watched, onToggleWatch, query, notify }: Props) {
+export function MessageDetail({
+  message,
+  pinned,
+  onPin,
+  watched,
+  onToggleWatch,
+  query,
+  notify,
+  originLabel = "System",
+}: Props) {
   if (!message) {
     return (
       <div className="insp-empty">
@@ -124,7 +135,7 @@ export function MessageDetail({ message, pinned, onPin, watched, onToggleWatch, 
           </h3>
           <div className="insp-meta">
             <span>
-              System {message.systemId} / {message.componentName}
+              {originLabel} {message.systemId} / {message.componentName}
             </span>
             <span>{formatRate(message.hz)} Hz</span>
             <span>{formatBytes(message.bytesPerSecond)}</span>

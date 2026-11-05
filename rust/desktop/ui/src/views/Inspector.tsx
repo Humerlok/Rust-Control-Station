@@ -10,24 +10,46 @@ import {
 } from "../components/inspector/inspectorUtils";
 import { MessageDetail } from "../components/inspector/MessageDetail";
 import { MessageTree } from "../components/inspector/MessageTree";
-import { useInspector } from "../components/inspector/useInspector";
+import { mavlinkSource, useInspector, type InspectorSource } from "../components/inspector/useInspector";
 import { loadSetting, saveSetting } from "../storage";
 import "../inspector.css";
 
 type Props = { active: boolean; notify: (text: string, ok: boolean) => void };
 
-const COLLAPSED_KEY = "inspector.collapsed";
-const PINNED_KEY = "inspector.pinned";
-const SORT_KEY = "inspector.sort";
+type PanelProps = Props & {
+  source?: InspectorSource;
+  /** What the first level of the tree is called. */
+  originLabel?: string;
+  /** Shown while there is nothing to list. */
+  emptyText?: string;
+  /** Prefix of the remembered settings, so two inspectors do not share them. */
+  storagePrefix?: string;
+};
 
 function toggleIn(list: string[], key: string): string[] {
   return list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
 }
 
-export function Inspector({ active, notify }: Props) {
+export function Inspector(props: Props) {
+  return <InspectorPanel {...props} />;
+}
+
+/** The inspector screen for any [`InspectorSource`]: MAVLink by default, or the DroneCAN bus. */
+export function InspectorPanel({
+  active,
+  notify,
+  source = mavlinkSource,
+  originLabel = "System",
+  emptyText = "Connect to a vehicle to see MAVLink traffic.",
+  storagePrefix = "inspector",
+}: PanelProps) {
+  const COLLAPSED_KEY = `${storagePrefix}.collapsed`;
+  const PINNED_KEY = `${storagePrefix}.pinned`;
+  const SORT_KEY = `${storagePrefix}.sort`;
   const { store, messages, paused, watched, togglePause, toggleWatch, removeWatch, clearAll } = useInspector(
     active,
     notify,
+    source,
   );
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortMode>(() => loadSetting<SortMode>(SORT_KEY, "id"));
@@ -78,7 +100,7 @@ export function Inspector({ active, notify }: Props) {
       saveSetting(COLLAPSED_KEY, next);
       return next;
     });
-  }, []);
+  }, [COLLAPSED_KEY]);
 
   const onPin = useCallback((key: string) => {
     setPinned((current) => {
@@ -86,7 +108,7 @@ export function Inspector({ active, notify }: Props) {
       saveSetting(PINNED_KEY, next);
       return next;
     });
-  }, []);
+  }, [PINNED_KEY]);
 
   const changeSort = (mode: SortMode) => {
     setSort(mode);
@@ -128,7 +150,7 @@ export function Inspector({ active, notify }: Props) {
         <span className="dim insp-summary">
           {messages.length === 0
             ? "No messages"
-            : `${messages.length} message type${messages.length === 1 ? "" : "s"} from ${systems} system${systems === 1 ? "" : "s"}`}
+            : `${messages.length} message type${messages.length === 1 ? "" : "s"} from ${systems} ${originLabel.toLowerCase()}${systems === 1 ? "" : "s"}`}
           {search && messages.length > 0 ? ` · ${visible.length} match` : ""}
           {paused ? " · paused" : ""}
         </span>
@@ -138,7 +160,7 @@ export function Inspector({ active, notify }: Props) {
         <aside className="panel insp-left">
           {messages.length === 0 ? (
             <div className="insp-empty">
-              <p>Connect to a vehicle to see MAVLink traffic.</p>
+              <p>{emptyText}</p>
             </div>
           ) : visible.length === 0 ? (
             <div className="insp-empty">
@@ -155,6 +177,7 @@ export function Inspector({ active, notify }: Props) {
               selectedKey={effectiveKey}
               onSelect={setSelectedKey}
               pinnedKeys={pinnedSet}
+              originLabel={originLabel}
               onPin={onPin}
             />
           )}
@@ -169,6 +192,7 @@ export function Inspector({ active, notify }: Props) {
               watched={watchedSet}
               onToggleWatch={toggleWatch}
               query={search}
+              originLabel={originLabel}
               notify={notify}
             />
           </section>
