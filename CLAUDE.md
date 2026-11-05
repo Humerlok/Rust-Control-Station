@@ -77,7 +77,7 @@ rust/
                        rename/CRC; also feeds ParamService's fast `param.pck` download), FirmwareService (manifest/.apj download,
                        bootloader identify and flash), MotorTestService (DO_MOTOR_TEST with the safety rules, ESC
                        telemetry), DroneCanService (CAN forward relay as node 127: node table, logs, node parameters,
-                       save, restart)
+                       save, restart, node firmware update through a file server, dynamic node id allocation)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -109,7 +109,8 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
 Tuning, MAVLink Inspector, mission planning). Phase 4 is implemented: MAVFTP and firmware
 flashing (see HANDOFF.md; the user flashed a Cube Orange with it). Phase 5 (Motor Test) and
-Phase 6a (DroneCAN nodes, parameters, restart) are implemented; DroneCAN has only been tested
+Phase 6a-6b (DroneCAN nodes, parameters, restart, node firmware update, node id allocation) are
+implemented; the DroneCAN Inspector (6c) is not. DroneCAN has only been tested
 against a fake CAN node behind a fake MAVLink vehicle, never on a real CAN bus.
 Serial, AUTO scan, WebSocket and real-vehicle command/parameter/calibration/mission flows are
 covered only by loopback and Replay tests, not by hardware.

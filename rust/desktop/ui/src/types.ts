@@ -191,6 +191,27 @@ export type DroneCanNode = {
 
 export type DroneCanLog = { timeMs: number; node: number; level: string; source: string; text: string };
 
+export type UpdatePhase = "starting" | "sending" | "done" | "failed";
+
+export type FirmwareUpdateState = {
+  node: number;
+  phase: UpdatePhase;
+  sent: number;
+  total: number;
+  message: string;
+};
+
+/** What a firmware file is, before it is sent to a node. */
+export type NodeImageInfo = {
+  format: "apj" | "bin";
+  size: number;
+  /** The image CRC from the application descriptor, 16 hex digits; null when the file has none. */
+  crc: string | null;
+  description: string | null;
+};
+
+export type DroneCanAllocation = { uniqueId: string; nodeId: number };
+
 export type DroneCanState = {
   active: boolean;
   /** 1 or 2: the autopilot's CAN bus being relayed. */
@@ -201,6 +222,8 @@ export type DroneCanState = {
   framesRx: number;
   framesTx: number;
   progress: { node: number; received: number } | null;
+  update: FirmwareUpdateState | null;
+  allocation: { enabled: boolean; recent: DroneCanAllocation[] };
 };
 
 export const idleDroneCan: DroneCanState = {
@@ -211,6 +234,8 @@ export const idleDroneCan: DroneCanState = {
   framesRx: 0,
   framesTx: 0,
   progress: null,
+  update: null,
+  allocation: { enabled: false, recent: [] },
 };
 
 export type NodeParamValue =

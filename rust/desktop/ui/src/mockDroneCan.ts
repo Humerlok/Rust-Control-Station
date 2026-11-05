@@ -1,5 +1,14 @@
 import type { Backend, Unlisten } from "./api";
-import { idleDroneCan, type DroneCanLog, type DroneCanNode, type DroneCanState, type NodeParam, type NodeParamValue } from "./types";
+import {
+  idleDroneCan,
+  type DroneCanAllocation,
+  type DroneCanLog,
+  type DroneCanNode,
+  type DroneCanState,
+  type FirmwareUpdateState,
+  type NodeParam,
+  type NodeParamValue,
+} from "./types";
 
 type Context = {
   isConnected: () => boolean;
@@ -14,6 +23,10 @@ type DroneCanMock = Pick<
   | "dronecanSetParam"
   | "dronecanSaveParams"
   | "dronecanRestart"
+  | "dronecanInspectFirmware"
+  | "dronecanUpdateFirmware"
+  | "dronecanCancelUpdate"
+  | "dronecanSetAllocation"
   | "onDroneCan"
 > & { reset: () => void };
 
@@ -57,6 +70,10 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
   let timer: ReturnType<typeof setInterval> | null = null;
   const params = new Map<number, NodeParam[]>();
   const logs: DroneCanLog[] = [];
+  let update: FirmwareUpdateState | null = null;
+  let updateTimer: ReturnType<typeof setInterval> | null = null;
+  let allocationEnabled = false;
+  const allocations: DroneCanAllocation[] = [];
 
   const requireRunning = () => {
     if (!state.active) throw "DroneCAN is not running; connect to a CAN bus first";
@@ -85,7 +102,20 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
       framesRx: uptime * 40,
       framesTx: uptime * 3,
       progress: null,
+      update,
+      allocation: { enabled: allocationEnabled, recent: [...allocations] },
     };
+  }
+
+  const base64Bytes = (data: string) => Math.floor((data.trim().length * 3) / 4);
+
+  function stopUpdate() {
+    if (updateTimer) clearInterval(updateTimer);
+    updateTimer = null;
+  }
+
+  function refresh() {
+    if (state.active) push(build(state.bus ?? 1));
   }
 
   function push(next: DroneCanState) {
@@ -101,6 +131,10 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
   return {
     reset() {
       stopTimer();
+      stopUpdate();
+      update = null;
+      allocationEnabled = false;
+      allocations.length = 0;
       params.clear();
       logs.length = 0;
       push(idleDroneCan);
@@ -119,6 +153,9 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
     },
     async dronecanStop() {
       stopTimer();
+      stopUpdate();
+      update = null;
+      allocationEnabled = false;
       push(idleDroneCan);
       return "Stopped";
     },
@@ -154,6 +191,52 @@ export function createDroneCanMock({ isConnected }: Context): DroneCanMock {
       requireRunning();
       logs.unshift({ timeMs: Date.now() - started, node, level: "WARNING", source: "boot", text: "restarting" });
       return `Node ${node} is restarting`;
+    },
+    async dronecanInspectFirmware(data) {
+      await sleep(100);
+      const size = base64Bytes(data);
+      if (size === 0) throw "the firmware file is empty";
+      // A file that starts like JSON is an .apj; the mock gives every file a descriptor CRC.
+      return { format: data.startsWith("e") ? "apj" : "bin", size, crc: "AAAABBBBCCCCDDDD", description: null };
+    },
+    async dronecanUpdateFirmware(node, data, force) {
+      await sleep(200);
+      requireRunning();
+      const entry = NODES.find((n) => n.id === node);
+      if (!entry) throw `node ${node} is not on the bus`;
+      if (update && (update.phase === "starting" || update.phase === "sending")) throw "another node is being updated; wait for it or cancel it";
+      const total = base64Bytes(data);
+      if (total === 0) throw "the firmware file is empty";
+      void force;
+      update = { node, phase: "starting", sent: 0, total, message: "Asking the node to fetch the firmware" };
+      refresh();
+      stopUpdate();
+      updateTimer = setInterval(() => {
+        if (!update || update.phase === "failed" || update.phase === "done") return stopUpdate();
+        const sent = Math.min(update.total, update.sent + Math.max(256, Math.ceil(update.total / 25)));
+        update =
+          sent >= update.total
+            ? { ...update, sent, phase: "done", message: `Firmware sent to node ${node}; it is restarting` }
+            : { ...update, sent, phase: "sending", message: "Sending the firmware" };
+        refresh();
+      }, 300);
+      return `Node ${node} was told to fetch ${total} bytes of firmware`;
+    },
+    async dronecanCancelUpdate() {
+      if (!update || (update.phase !== "starting" && update.phase !== "sending")) throw "no update is running";
+      stopUpdate();
+      update = { ...update, phase: "failed", message: "cancelled" };
+      refresh();
+      return "Update cancelled";
+    },
+    async dronecanSetAllocation(enabled) {
+      requireRunning();
+      allocationEnabled = enabled;
+      if (enabled && allocations.length === 0) {
+        allocations.unshift({ uniqueId: "3A0021000C513332353230370000AB01", nodeId: 125 });
+      }
+      refresh();
+      return enabled ? "Handing out node ids to new devices" : "No longer handing out node ids";
     },
     async onDroneCan(cb: (s: DroneCanState) => void): Promise<Unlisten> {
       listeners.add(cb);

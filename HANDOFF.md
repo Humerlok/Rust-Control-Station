@@ -33,17 +33,27 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - Frames outside the layout table (heli, scripting matrix class 17, coaxial...) get generic motors A, B, C...: the screen names the unknown class/type and offers a "Number of motors" field (1-12, passed to `MotorTestService::frame` as `generic_count`). Output number and rotation are unknown for those.
 - Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
 
-## Phase 6a: DroneCAN nodes, parameters, restart (implemented, uncommitted)
+## Phase 6b: node firmware update and node id allocation (implemented, uncommitted)
+
+- `dronecan::image::app_descriptor_crc`: the 64-bit image CRC after the AP_Periph descriptor signature (`D7 E4 F7 BA D0 0F 9B EE` or `40 A2 E4 F1 64 68 91 06`), the value a node reports as `image_crc`.
+- `DroneCanService::start_update(node, bytes, force)`: accepts an `.apj` (decoded with `firmware::parse_apj`) or a raw `.bin`; refuses when the vehicle is armed, the node is offline or busy, or another update runs; does nothing (with a message) when the image CRC equals the node's unless `force`; sends `BeginFirmwareUpdate` (source node 127, path `fw.bin`, `ERROR_OK` and `ERROR_IN_PROGRESS` accepted, a node already in `SOFTWARE_UPDATE` is not asked again) and then serves the node's `file.Read` requests (256 bytes per answer, aliases `fw.bin`/`fw.bi`, `NOT_FOUND` otherwise). The update ends `Done` when the last chunk is read, or `Failed` when the node never asks (30 s), stalls (10 s, both in `DroneCanTiming`), refuses, or the user cancels. Progress is `DroneCanState.update`. The node is not re-verified after it reboots.
+- `inspect_image` describes a file (format, size, descriptor CRC) before sending. No download from `firmware.ardupilot.org` yet: files are local.
+- Node id allocator (`set_allocation`, off by default and reset when the relay stops): the three-stage anonymous protocol (6 + 6 + 4 bytes of unique id, replies carry what was collected), ids granted in this order: the id already given to that unique id, the id of a node on the bus with that unique id, the requested id if free, else the highest free id from 125 down (never 127 or one in use). `DroneCanState.allocation` lists the last 20.
+- Desktop: `dronecan_inspect_firmware`, `dronecan_update_firmware`, `dronecan_cancel_update`, `dronecan_set_allocation`; the DroneCAN screen has a per-node Update button (file picker, then a danger confirmation showing the file, its CRC and the node's, with a "send anyway" box when they match), a progress panel with Cancel, and an "Assign node IDs to new devices" box. Mock in `mockDroneCan.ts`.
+- Tested: 15 loopback tests in `link/tests/dronecan.rs` (8 new: whole image served byte for byte, already-current image skipped and forced, refusals for empty/bad files, unknown node, node refusing, armed vehicle, stall and never-asks timeouts, cancel and one update at a time, descriptor CRC, three-stage allocation with preferred ids, same device getting the same id, known node keeping its id), unit tests for the descriptor, the mock flow in a browser. **Never run against a real node: a bad update can leave a device needing bootloader recovery. Try it first on a spare peripheral, props off.**
+- Not done: DroneCAN Inspector and the stats/filter popups (6c), downloading peripheral firmware from the ArduPilot server, verifying the CRC after the node reboots.
+
+## Phase 6a: DroneCAN nodes, parameters, restart (committed `70c7c108a`)
 
 - New pure crate `dronecan`: the DSDL files of the legacy tool copied to `crates/dronecan/dsdl/` and embedded by `build.rs`; `dsdl` (parser, constants and `voidN` handled, `OVERRIDE_SIGNATURE`, 64-bit signatures: **all 155 match** the legacy `messages.cs` table, kept as `tests/golden_signatures.txt`; constants are not part of the signature and `voidN` normalises without a trailing space), `codec` (data-driven encode/decode into `Value`; little-endian bytes with the partial byte last and bits MSB first, unions with a tag, tail array optimisation on in classic CAN and off in CAN FD, float16, zero extension of short payloads), `transfer` (29-bit id, tail byte, CRC16 seeded with the signature, multi-frame, reassembly keyed by id with a 2 s timeout, CAN FD padding before the tail byte).
 - `link::DroneCanService`: `MAV_CMD_CAN_FORWARD` renewed every second (stop sends 0), `CAN_FRAME`/`CANFD_FRAME` filtered by bus and vehicle, ground station as node 127 (NodeStatus 1 Hz, answers GetNodeInfo), node table (NodeStatus + GetNodeInfo, offline after 3 s), node `LogMessage`s (100), `list_params` (GetSet by index), `set_param` (checked against the echo), `save_params` (ExecuteOpcode SAVE), `restart_node` (silence is not an error). Requests are retried 4 times with a 1 s timeout; one operation per node at a time.
 - Desktop: `dronecan_*` commands, `dronecan` event; Setup > DroneCAN screen (CAN1/CAN2 + Connect, node grid, Parameters editor with search / non-default filter / write with `*_ENABLE` last then save to flash / commit, Restart with confirmation, node messages). `mockDroneCan.ts` backs `?mock=1`.
 - Tested: 23 unit tests in the crate, 7 loopback tests (`link/tests/dronecan.rs`: node info over several frames, parameters, retries, dead node, other bus ignored, offline), the mock flow in a browser. Not tested on a real CAN bus or peripheral.
-- Not done yet (the rest of the plan): 6b node firmware update (file server, BeginFirmwareUpdate) and dynamic node id allocation, 6c DroneCAN Inspector, stats popup and message filter. CAN FD is untested (CRC over padded payloads is accepted with or without the padding).
+- CAN FD is untested (CRC over padded payloads is accepted with or without the padding).
 
 ## Next planned
 
-See the plan file for 6b and 6c.
+6c: DroneCAN Inspector (node -> message tree with Hz and bytes/s, decoded fields, graph, subscribe), stats popup and message filter. See the plan file.
 
 ## Verified
 

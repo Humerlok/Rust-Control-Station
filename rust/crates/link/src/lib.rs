@@ -20,8 +20,9 @@ pub use control_station_firmware::{BoardInfo, Firmware, ManifestEntry};
 pub use control_station_mavftp::{DirEntry, FtpError};
 pub use control_station_mission::MissionItem;
 pub use dronecan::{
-    DroneCanLog, DroneCanNode, DroneCanService, DroneCanState, DroneCanTiming, NodeParam,
-    NodeParamValue, ParamsProgress as NodeParamsProgress, GCS_NODE_ID,
+    Allocation, AllocationState, DroneCanLog, DroneCanNode, DroneCanService, DroneCanState,
+    DroneCanTiming, FirmwareUpdateState, NodeImageInfo, NodeParam, NodeParamValue,
+    ParamsProgress as NodeParamsProgress, UpdatePhase, GCS_NODE_ID,
 };
 pub use firmware::{FirmwareService, FirmwareServiceError, FirmwareTiming, FlashProgress};
 pub use ftp::{

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { NodeParamsPanel } from "../components/NodeParamsPanel";
-import type { DroneCanNode, Telemetry } from "../types";
+import type { DroneCanNode, NodeImageInfo, Telemetry } from "../types";
 import { useDroneCan } from "../useDroneCan";
 import "../dronecan.css";
 
@@ -18,6 +18,15 @@ function uptime(seconds: number): string {
   return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s` : `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+type PendingUpdate = { node: DroneCanNode; fileName: string; data: string; info: NodeImageInfo };
+
 const HEALTH_CLASS: Record<string, string> = { OK: "ok", WARNING: "warn", ERROR: "danger", CRITICAL: "danger" };
 const LEVEL_CLASS: Record<string, string> = { ERROR: "sev-error", WARNING: "sev-warn", DEBUG: "sev-dim" };
 
@@ -27,8 +36,32 @@ export function DroneCan({ telemetry, notify }: Props) {
   const [busy, setBusy] = useState(false);
   const [paramsNode, setParamsNode] = useState<number | null>(null);
   const [restart, setRestart] = useState<DroneCanNode | null>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<PendingUpdate | null>(null);
+  const [force, setForce] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const updateTarget = useRef<DroneCanNode | null>(null);
 
   const connected = telemetry.connected;
+  const updating = state.update !== null && (state.update.phase === "starting" || state.update.phase === "sending");
+
+  function chooseFirmware(node: DroneCanNode) {
+    updateTarget.current = node;
+    fileInput.current?.click();
+  }
+
+  async function onFirmwareFile(file: File | undefined) {
+    const node = updateTarget.current;
+    if (fileInput.current) fileInput.current.value = "";
+    if (!file || !node) return;
+    try {
+      const data = toBase64(await file.arrayBuffer());
+      const info = await api.dronecanInspectFirmware(data);
+      setForce(false);
+      setPendingUpdate({ node, fileName: file.name, data, info });
+    } catch (error) {
+      notify(`Firmware file: ${String(error)}`, false);
+    }
+  }
   const selected = state.nodes.find((n) => n.id === paramsNode) ?? null;
 
   async function run(label: string, call: () => Promise<string>) {
@@ -64,6 +97,15 @@ export function DroneCan({ telemetry, notify }: Props) {
         <button className={state.active ? "" : "primary"} disabled={busy || (!connected && !state.active)} onClick={toggle}>
           {state.active ? "Disconnect" : "Connect"}
         </button>
+        <label className="toggle" title="Hand out node ids to devices that ask for one (dynamic node allocation)">
+          <input
+            type="checkbox"
+            checked={state.allocation.enabled}
+            disabled={!state.active || busy}
+            onChange={(e) => void run("Node ids", () => api.dronecanSetAllocation(e.target.checked))}
+          />{" "}
+          Assign node IDs to new devices
+        </label>
         <span className="dim dc-stats mono">
           {state.active ? `CAN${state.bus} · ${state.framesRx} frames in · ${state.framesTx} out · ${state.nodes.length} node(s)` : "Not connected to a CAN bus"}
         </span>
@@ -111,6 +153,9 @@ export function DroneCan({ telemetry, notify }: Props) {
                     <button disabled={!n.online || busy} onClick={() => setParamsNode(n.id)}>
                       Parameters
                     </button>
+                    <button disabled={!n.online || busy || updating || telemetry.armed} onClick={() => chooseFirmware(n)} title={telemetry.armed ? "Disarm the vehicle first" : "Send a firmware file (.bin or .apj) to this node"}>
+                      Update
+                    </button>
                     <button className="danger" disabled={!n.online || busy} onClick={() => setRestart(n)}>
                       Restart
                     </button>
@@ -128,6 +173,106 @@ export function DroneCan({ telemetry, notify }: Props) {
           </table>
         </div>
       </section>
+
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".bin,.apj"
+        hidden
+        onChange={(e) => void onFirmwareFile(e.target.files?.[0])}
+        aria-label="Node firmware file"
+      />
+
+      {state.update && (
+        <section className="panel dc-update" aria-label="Node firmware update">
+          <header>
+            <h2>
+              Firmware update: node {state.update.node}
+              {state.nodes.find((n) => n.id === state.update?.node)?.name ? ` (${state.nodes.find((n) => n.id === state.update?.node)?.name})` : ""}
+            </h2>
+            {updating && (
+              <button className="danger" disabled={busy} onClick={() => void run("Update", () => api.dronecanCancelUpdate())}>
+                Cancel
+              </button>
+            )}
+          </header>
+          <div className="dc-update-body">
+            <div
+              className="progress"
+              role="progressbar"
+              aria-valuenow={state.update.total > 0 ? Math.round((state.update.sent / state.update.total) * 100) : 0}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <div style={{ width: `${state.update.total > 0 ? (state.update.sent / state.update.total) * 100 : 0}%` }} />
+              <span>
+                {state.update.total > 0 ? Math.round((state.update.sent / state.update.total) * 100) : 0}% · {state.update.sent} / {state.update.total} bytes
+              </span>
+            </div>
+            <p className={`status-line ${state.update.phase === "failed" ? "err-text" : state.update.phase === "done" ? "ok-text" : "dim"}`} role="status">
+              {state.update.phase === "failed" ? "Failed: " : ""}
+              {state.update.message}
+            </p>
+            {updating && <p className="warn-text status-line">Do not power off the vehicle or unplug the CAN bus until this finishes.</p>}
+          </div>
+        </section>
+      )}
+
+      {pendingUpdate && (
+        <ConfirmDialog
+          title={`Update node ${pendingUpdate.node.id}?`}
+          tone="danger"
+          confirmLabel="Update node"
+          onConfirm={() => {
+            const { node, data } = pendingUpdate;
+            const sendAnyway = force;
+            setPendingUpdate(null);
+            void run(`Node ${node.id}`, () => api.dronecanUpdateFirmware(node.id, data, sendAnyway));
+          }}
+          onCancel={() => setPendingUpdate(null)}
+        >
+          <ul className="dc-update-facts">
+            <li>
+              Node: <strong>{pendingUpdate.node.name ?? `node ${pendingUpdate.node.id}`}</strong>, running {pendingUpdate.node.swVersion ?? "an unknown version"}
+            </li>
+            <li>
+              File: <span className="mono">{pendingUpdate.fileName}</span> ({pendingUpdate.info.format}, {pendingUpdate.info.size} bytes
+              {pendingUpdate.info.description ? `, ${pendingUpdate.info.description}` : ""})
+            </li>
+            <li>
+              Image CRC: <span className="mono">{pendingUpdate.info.crc ?? "none"}</span>; the node reports{" "}
+              <span className="mono">{pendingUpdate.node.swCrc ?? "none"}</span>
+            </li>
+          </ul>
+          {pendingUpdate.info.crc === null && (
+            <p className="warn-text">This file has no ArduPilot application descriptor. Make sure it is firmware for this exact device.</p>
+          )}
+          {pendingUpdate.info.crc !== null && pendingUpdate.info.crc === pendingUpdate.node.swCrc && (
+            <label className="toggle">
+              <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} /> The node already runs this image. Send it anyway
+            </label>
+          )}
+          <p className="warn-text">
+            The wrong firmware, or an interrupted transfer, can leave the device unusable until it is recovered through its bootloader. Keep the
+            vehicle disarmed, powered and connected until the update finishes.
+          </p>
+        </ConfirmDialog>
+      )}
+
+      {state.allocation.enabled && state.allocation.recent.length > 0 && (
+        <section className="panel">
+          <header>
+            <h2>Node ids assigned</h2>
+          </header>
+          <ul className="message-list">
+            {state.allocation.recent.map((a) => (
+              <li key={a.uniqueId}>
+                <span className="mono">#{a.nodeId}</span> <span className="mono dim">{a.uniqueId}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {selected && <NodeParamsPanel key={selected.id} node={selected} progress={state.progress} notify={notify} onClose={() => setParamsNode(null)} />}
 

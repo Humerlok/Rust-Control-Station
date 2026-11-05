@@ -10,6 +10,7 @@ use std::{
 
 use control_station_commands as commands;
 use control_station_dronecan::{
+    image::app_descriptor_crc,
     transfer::{encode_transfer, CanFrame, Reassembler, Transfer, TransferKind, GCS_PRIORITY},
     Catalog, Side, Value,
 };
@@ -46,6 +47,10 @@ pub struct DroneCanTiming {
     pub request_attempts: u32,
     /// A node that has not sent NodeStatus for this long is shown offline.
     pub offline_after: Duration,
+    /// How long a node may take to ask for the image after being told to fetch it.
+    pub update_start_timeout: Duration,
+    /// How long a node may go quiet in the middle of the transfer.
+    pub update_stall_timeout: Duration,
     pub tick: Duration,
 }
 
@@ -58,6 +63,8 @@ impl Default for DroneCanTiming {
             request_timeout: Duration::from_secs(1),
             request_attempts: 4,
             offline_after: Duration::from_secs(3),
+            update_start_timeout: Duration::from_secs(30),
+            update_stall_timeout: Duration::from_secs(10),
             tick: Duration::from_millis(100),
         }
     }
@@ -96,6 +103,55 @@ pub struct ParamsProgress {
     pub received: u32,
 }
 
+/// Where a node firmware update stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdatePhase {
+    /// The node was told to fetch the image and has not asked for it yet.
+    Starting,
+    Sending,
+    Done,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FirmwareUpdateState {
+    pub node: u8,
+    pub phase: UpdatePhase,
+    pub sent: usize,
+    pub total: usize,
+    pub message: String,
+}
+
+/// What the screen shows before an update: what the file is and whether the node already runs it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeImageInfo {
+    /// `"apj"` or `"bin"`.
+    pub format: &'static str,
+    pub size: usize,
+    /// The image CRC from the application descriptor, as 16 hex digits.
+    pub crc: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Allocation {
+    pub unique_id: String,
+    pub node_id: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocationState {
+    /// The ground station hands out node ids to devices that ask.
+    pub enabled: bool,
+    /// Newest first.
+    pub recent: Vec<Allocation>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DroneCanState {
@@ -107,6 +163,8 @@ pub struct DroneCanState {
     pub frames_rx: u64,
     pub frames_tx: u64,
     pub progress: Option<ParamsProgress>,
+    pub update: Option<FirmwareUpdateState>,
+    pub allocation: AllocationState,
 }
 
 /// A node parameter value; the screen picks the variant from the parameter's current one.
@@ -171,6 +229,28 @@ struct Types {
     get_set: usize,
     execute_opcode: usize,
     log_message: usize,
+    begin_firmware_update: usize,
+    file_read: usize,
+    allocation: usize,
+}
+
+/// A firmware image being served to one node.
+struct UpdateSession {
+    node: u8,
+    image: Arc<Vec<u8>>,
+    state: FirmwareUpdateState,
+    started: Instant,
+    last_activity: Instant,
+    reading: bool,
+}
+
+/// The dynamic node id allocator: one request is collected over up to three stages.
+#[derive(Default)]
+struct Allocator {
+    enabled: bool,
+    collecting: Option<(Vec<u8>, Instant)>,
+    assigned: HashMap<Vec<u8>, u8>,
+    recent: VecDeque<Allocation>,
 }
 
 struct NodeEntry {
@@ -194,6 +274,8 @@ struct Inner {
     broadcast_id: u8,
     progress: Option<ParamsProgress>,
     busy_nodes: Vec<u8>,
+    update: Option<UpdateSession>,
+    allocator: Allocator,
     frames_rx: u64,
     frames_tx: u64,
     dirty: bool,
@@ -277,6 +359,9 @@ impl DroneCanService {
             get_set: index("uavcan.protocol.param.GetSet"),
             execute_opcode: index("uavcan.protocol.param.ExecuteOpcode"),
             log_message: index("uavcan.protocol.debug.LogMessage"),
+            begin_firmware_update: index("uavcan.protocol.file.BeginFirmwareUpdate"),
+            file_read: index("uavcan.protocol.file.Read"),
+            allocation: index("uavcan.protocol.dynamic_node_id.Allocation"),
         };
         let (events, _) = broadcast::channel(64);
         let receivers = (link.subscribe_packets(), link.subscribe());
@@ -299,6 +384,8 @@ impl DroneCanService {
                     broadcast_id: 0,
                     progress: None,
                     busy_nodes: Vec::new(),
+                    update: None,
+                    allocator: Allocator::default(),
                     frames_rx: 0,
                     frames_tx: 0,
                     dirty: false,
@@ -328,6 +415,11 @@ impl DroneCanService {
             frames_rx: inner.frames_rx,
             frames_tx: inner.frames_tx,
             progress: inner.progress.clone(),
+            update: inner.update.as_ref().map(|u| u.state.clone()),
+            allocation: AllocationState {
+                enabled: inner.allocator.enabled,
+                recent: inner.allocator.recent.iter().cloned().collect(),
+            },
         }
     }
 
@@ -375,6 +467,8 @@ impl DroneCanService {
             inner.pending.clear();
             inner.progress = None;
             inner.busy_nodes.clear();
+            inner.update = None;
+            inner.allocator = Allocator::default();
             self.emit(&mut inner);
             inner.target
         };
@@ -442,6 +536,7 @@ impl DroneCanService {
                         }
                         self.ask_for_node_info().await;
                     }
+                    self.expire_update(now);
                     self.housekeeping(now);
                 }
             }
@@ -561,6 +656,20 @@ impl DroneCanService {
             {
                 self.answer_node_info(transfer.source, transfer.transfer_id)
                     .await;
+            }
+            TransferKind::Request { destination, .. }
+                if destination == GCS_NODE_ID && index == types.file_read =>
+            {
+                if let Ok(request) = catalog.decode(index, Side::Request, &transfer.payload, !fd) {
+                    self.serve_file_read(transfer.source, transfer.transfer_id, &request)
+                        .await;
+                }
+            }
+            // A device asking for a node id announces itself anonymously.
+            TransferKind::Message { .. } if transfer.source == 0 && index == types.allocation => {
+                if let Ok(request) = catalog.decode(index, Side::Message, &transfer.payload, !fd) {
+                    self.allocate(&request).await;
+                }
             }
             _ => {}
         }
@@ -1028,5 +1137,459 @@ impl DroneCanService {
                 "Restart sent to node {node}; it did not answer (it may already be restarting)"
             )),
         }
+    }
+}
+
+// ---- node firmware update and dynamic node id allocation ----
+
+/// Largest image the screen may send to a node.
+const MAX_NODE_IMAGE: usize = 8 * 1024 * 1024;
+const READ_CHUNK: usize = 256;
+const FILE_ALIASES: [&str; 2] = ["fw.bin", "fw.bi"];
+const FILE_ERROR_NOT_FOUND: i64 = 2;
+const MAX_RECENT_ALLOCATIONS: usize = 20;
+const ALLOCATION_FOLLOWUP: Duration = Duration::from_secs(2);
+
+/// Ends the update session: records how it ended and frees the node.
+fn finish_update(inner: &mut Inner, phase: UpdatePhase, message: impl Into<String>) {
+    if let Some(session) = inner.update.as_mut() {
+        session.state.phase = phase;
+        session.state.message = message.into();
+        let node = session.node;
+        inner.busy_nodes.retain(|n| *n != node);
+    }
+    inner.dirty = true;
+}
+
+fn pick_node_id(inner: &Inner, unique_id: &[u8], preferred: u8) -> Option<u8> {
+    if let Some(id) = inner.allocator.assigned.get(unique_id) {
+        return Some(*id);
+    }
+    let text = hex(unique_id.iter().copied());
+    if let Some(entry) = inner
+        .nodes
+        .values()
+        .find(|e| e.node.unique_id.as_deref() == Some(text.as_str()))
+    {
+        return Some(entry.node.id);
+    }
+    let used = |id: u8| {
+        id == GCS_NODE_ID
+            || inner.nodes.contains_key(&id)
+            || inner.allocator.assigned.values().any(|v| *v == id)
+    };
+    if (1..=125).contains(&preferred) && !used(preferred) {
+        return Some(preferred);
+    }
+    (1..=125u8).rev().find(|id| !used(*id))
+}
+
+impl DroneCanService {
+    /// Decodes a firmware file (`.apj` or a raw `.bin`) and describes it.
+    fn prepare_image(bytes: &[u8]) -> Result<(Vec<u8>, NodeImageInfo), LinkError> {
+        if bytes.is_empty() {
+            return Err(error("the firmware file is empty"));
+        }
+        if bytes.len() > MAX_NODE_IMAGE {
+            return Err(error("the firmware file is implausibly large"));
+        }
+        let looks_like_apj = bytes.iter().find(|b| !b.is_ascii_whitespace()) == Some(&b'{');
+        let (data, format, description) = if looks_like_apj {
+            let apj =
+                control_station_firmware::parse_apj(bytes).map_err(|e| error(e.to_string()))?;
+            let description = format!("{} {}", apj.description, apj.version)
+                .trim()
+                .to_owned();
+            (
+                apj.image,
+                "apj",
+                (!description.is_empty()).then_some(description),
+            )
+        } else {
+            (bytes.to_vec(), "bin", None)
+        };
+        let info = NodeImageInfo {
+            format,
+            size: data.len(),
+            crc: app_descriptor_crc(&data).map(|crc| format!("{crc:016X}")),
+            description,
+        };
+        Ok((data, info))
+    }
+
+    /// What a firmware file is, before anything is sent.
+    pub fn inspect_image(bytes: &[u8]) -> Result<NodeImageInfo, LinkError> {
+        Self::prepare_image(bytes).map(|(_, info)| info)
+    }
+
+    /// Serves `bytes` (an `.apj` or a raw `.bin`) to a node: tells it to fetch the image from the
+    /// ground station and answers its `file.Read` requests. Progress is in the state. Refused
+    /// while the vehicle is armed or when the node already runs this image (unless `force`).
+    pub async fn start_update(
+        &self,
+        node: u8,
+        bytes: Vec<u8>,
+        force: bool,
+    ) -> Result<String, LinkError> {
+        let (image, info) = Self::prepare_image(&bytes)?;
+        let (online, mode, running_crc) = {
+            let inner = self.lock();
+            if inner.bus.is_none() {
+                return Err(error("DroneCAN is not running; connect to a CAN bus first"));
+            }
+            let entry = inner
+                .nodes
+                .get(&node)
+                .ok_or_else(|| error(format!("node {node} is not on the bus")))?;
+            (
+                entry.node.online,
+                entry.node.mode.clone(),
+                entry.node.sw_crc.clone(),
+            )
+        };
+        if !online {
+            return Err(error(format!("node {node} is offline")));
+        }
+        if self.shared.link.telemetry().armed {
+            return Err(error(
+                "the vehicle is armed; disarm it before updating a node",
+            ));
+        }
+        if !force && info.crc.is_some() && info.crc == running_crc {
+            return Ok(format!(
+                "Node {node} already runs this firmware (the image CRC matches); nothing was sent"
+            ));
+        }
+        {
+            let inner = self.lock();
+            if inner.update.as_ref().is_some_and(|u| {
+                matches!(u.state.phase, UpdatePhase::Starting | UpdatePhase::Sending)
+            }) {
+                return Err(error(
+                    "another node is being updated; wait for it or cancel it",
+                ));
+            }
+        }
+        self.begin_node(node)?;
+        let total = image.len();
+        {
+            let mut inner = self.lock();
+            let now = Instant::now();
+            inner.update = Some(UpdateSession {
+                node,
+                image: Arc::new(image),
+                state: FirmwareUpdateState {
+                    node,
+                    phase: UpdatePhase::Starting,
+                    sent: 0,
+                    total,
+                    message: "Asking the node to fetch the firmware".into(),
+                },
+                started: now,
+                last_activity: now,
+                reading: false,
+            });
+            inner.dirty = true;
+        }
+        if mode == "SOFTWARE_UPDATE" {
+            // The node is already in its bootloader waiting for an image.
+            return Ok(format!(
+                "Node {node} is already waiting for firmware; serving it now"
+            ));
+        }
+        let request = Value::strukt([
+            ("source_node_id", Value::Uint(u64::from(GCS_NODE_ID))),
+            (
+                "image_file_remote_path",
+                Value::strukt([("path", Value::text(FILE_ALIASES[0]))]),
+            ),
+        ]);
+        let response = self
+            .call(
+                node,
+                self.shared.types.begin_firmware_update,
+                request,
+                self.shared.timing.request_attempts,
+            )
+            .await;
+        let failure = match response {
+            Ok(value) => match value.get("error").and_then(Value::as_u64).unwrap_or(255) {
+                0 | 2 => None, // OK, or already in progress
+                1 => {
+                    Some("the node refused: it is not in a mode that accepts an update".to_owned())
+                }
+                _ => {
+                    let detail = value
+                        .get("optional_error_message")
+                        .and_then(Value::as_text)
+                        .unwrap_or_default();
+                    Some(
+                        format!("the node refused the update {detail}")
+                            .trim()
+                            .to_owned(),
+                    )
+                }
+            },
+            Err(e) => Some(e.to_string()),
+        };
+        if let Some(message) = failure {
+            let mut inner = self.lock();
+            finish_update(&mut inner, UpdatePhase::Failed, message.clone());
+            return Err(error(message));
+        }
+        Ok(format!(
+            "Node {node} was told to fetch {total} bytes of firmware"
+        ))
+    }
+
+    /// Gives up on the update in progress. The node keeps asking for a while and gets "not found".
+    pub fn cancel_update(&self) -> Result<String, LinkError> {
+        let mut inner = self.lock();
+        match inner.update.as_ref().map(|u| u.state.phase) {
+            Some(UpdatePhase::Starting | UpdatePhase::Sending) => {
+                finish_update(&mut inner, UpdatePhase::Failed, "cancelled");
+                Ok("Update cancelled".into())
+            }
+            _ => Err(error("no update is running")),
+        }
+    }
+
+    /// Fails an update that the node never started or that stalled.
+    fn expire_update(&self, now: Instant) {
+        let mut inner = self.lock();
+        let Some(session) = inner.update.as_ref() else {
+            return;
+        };
+        let message = match session.state.phase {
+            UpdatePhase::Starting
+                if now.duration_since(session.started)
+                    > self.shared.timing.update_start_timeout =>
+            {
+                "the node never asked for the firmware"
+            }
+            UpdatePhase::Sending
+                if now.duration_since(session.last_activity)
+                    > self.shared.timing.update_stall_timeout =>
+            {
+                "the transfer stalled"
+            }
+            _ => return,
+        };
+        finish_update(&mut inner, UpdatePhase::Failed, message);
+    }
+
+    /// Answers a node's `file.Read` for the image being served.
+    async fn serve_file_read(&self, source: u8, transfer_id: u8, request: &Value) {
+        let offset = request.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let path = request
+            .get("path.path")
+            .and_then(Value::as_text)
+            .unwrap_or_default();
+        // `None`: nothing to serve (no update for this node, or it was cancelled).
+        let data: Option<Vec<u8>> = {
+            let mut inner = self.lock();
+            let now = Instant::now();
+            let serving = inner
+                .update
+                .as_ref()
+                .is_some_and(|s| s.node == source && FILE_ALIASES.contains(&path.as_str()));
+            let phase = inner.update.as_ref().map(|s| s.state.phase);
+            if !serving || phase == Some(UpdatePhase::Failed) {
+                None
+            } else {
+                Some(self.read_chunk(&mut inner, source, offset, phase, now))
+            }
+        };
+        match data {
+            Some(data) => {
+                self.send_file_read_response(source, transfer_id, 0, &data)
+                    .await
+            }
+            None => {
+                self.send_file_read_response(source, transfer_id, FILE_ERROR_NOT_FOUND, &[])
+                    .await
+            }
+        }
+    }
+
+    /// Cuts the chunk a node asked for and moves the update along. Needs the lock held.
+    fn read_chunk(
+        &self,
+        inner: &mut Inner,
+        source: u8,
+        offset: usize,
+        phase: Option<UpdatePhase>,
+        now: Instant,
+    ) -> Vec<u8> {
+        {
+            let session = inner.update.as_mut().expect("checked by the caller");
+            let total = session.image.len();
+            let end = offset.saturating_add(READ_CHUNK).min(total);
+            let data = if offset >= total {
+                Vec::new()
+            } else {
+                session.image[offset..end].to_vec()
+            };
+            if matches!(phase, Some(UpdatePhase::Starting | UpdatePhase::Sending)) {
+                session.last_activity = now;
+                session.reading = true;
+                session.state.phase = UpdatePhase::Sending;
+                session.state.sent = session.state.sent.max(end);
+                session.state.message = "Sending the firmware".into();
+                inner.dirty = true;
+                if end >= total {
+                    finish_update(
+                        inner,
+                        UpdatePhase::Done,
+                        format!("Firmware sent to node {source}; it is restarting"),
+                    );
+                }
+            }
+            data
+        }
+    }
+
+    async fn send_file_read_response(
+        &self,
+        destination: u8,
+        transfer_id: u8,
+        code: i64,
+        data: &[u8],
+    ) {
+        let types = &self.shared.types;
+        let catalog = self.shared.catalog;
+        let response = Value::strukt([
+            ("error", Value::strukt([("value", Value::Int(code))])),
+            (
+                "data",
+                Value::Array(data.iter().map(|b| Value::Uint(u64::from(*b))).collect()),
+            ),
+        ]);
+        let fd = self.lock().fd;
+        let Ok(payload) = catalog.encode(types.file_read, Side::Response, &response, !fd) else {
+            return;
+        };
+        let def = &catalog.types[types.file_read];
+        let transfer = Transfer {
+            priority: GCS_PRIORITY,
+            source: GCS_NODE_ID,
+            kind: TransferKind::Response {
+                service_id: def.id.unwrap_or(48) as u8,
+                destination,
+            },
+            transfer_id,
+            payload,
+        };
+        let _ = self.send_transfer(transfer, def.signature).await;
+    }
+
+    /// Turns the node id allocator on or off. It is off by default so the ground station does not
+    /// change the network unless asked to.
+    pub fn set_allocation(&self, enabled: bool) -> Result<String, LinkError> {
+        let mut inner = self.lock();
+        if inner.bus.is_none() {
+            return Err(error("DroneCAN is not running; connect to a CAN bus first"));
+        }
+        inner.allocator.enabled = enabled;
+        inner.allocator.collecting = None;
+        inner.dirty = true;
+        Ok(if enabled {
+            "Handing out node ids to new devices"
+        } else {
+            "No longer handing out node ids"
+        }
+        .into())
+    }
+
+    /// One stage of the three-stage allocation: collects the unique id and answers with what has
+    /// been collected, and with the node id once the 16 bytes are complete.
+    async fn allocate(&self, request: &Value) {
+        let first = request
+            .get("first_part_of_unique_id")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let chunk: Vec<u8> = request
+            .get("unique_id")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_u64())
+                    .map(|b| b as u8)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let preferred = request.get("node_id").and_then(Value::as_u64).unwrap_or(0) as u8;
+        let (collected, node_id) = {
+            let mut inner = self.lock();
+            if !inner.allocator.enabled {
+                return;
+            }
+            let now = Instant::now();
+            let buffer = if first {
+                chunk.iter().copied().take(6).collect::<Vec<u8>>()
+            } else {
+                match inner.allocator.collecting.take() {
+                    Some((mut buffer, at)) if now.duration_since(at) < ALLOCATION_FOLLOWUP => {
+                        buffer.extend(chunk.iter().copied().take(6));
+                        buffer.truncate(16);
+                        buffer
+                    }
+                    _ => return, // a follow-up with nothing to follow
+                }
+            };
+            if buffer.len() >= 16 {
+                let id = pick_node_id(&inner, &buffer, preferred);
+                if let Some(id) = id {
+                    inner.allocator.assigned.insert(buffer.clone(), id);
+                    inner.allocator.recent.push_front(Allocation {
+                        unique_id: hex(buffer.iter().copied()),
+                        node_id: id,
+                    });
+                    inner.allocator.recent.truncate(MAX_RECENT_ALLOCATIONS);
+                }
+                inner.dirty = true;
+                (buffer, id.unwrap_or(0))
+            } else {
+                inner.allocator.collecting = Some((buffer.clone(), now));
+                (buffer, 0)
+            }
+        };
+        let types = &self.shared.types;
+        let catalog = self.shared.catalog;
+        let reply = Value::strukt([
+            ("node_id", Value::Uint(u64::from(node_id))),
+            ("first_part_of_unique_id", Value::Bool(false)),
+            (
+                "unique_id",
+                Value::Array(
+                    collected
+                        .iter()
+                        .map(|b| Value::Uint(u64::from(*b)))
+                        .collect(),
+                ),
+            ),
+        ]);
+        let fd = self.lock().fd;
+        let Ok(payload) = catalog.encode(types.allocation, Side::Message, &reply, !fd) else {
+            return;
+        };
+        let transfer_id = {
+            let mut inner = self.lock();
+            let id = inner.broadcast_id;
+            inner.broadcast_id = (id + 1) & 0x1F;
+            id
+        };
+        let def = &catalog.types[types.allocation];
+        let transfer = Transfer {
+            priority: GCS_PRIORITY,
+            source: GCS_NODE_ID,
+            kind: TransferKind::Message {
+                type_id: def.id.unwrap_or(1),
+            },
+            transfer_id,
+            payload,
+        };
+        let _ = self.send_transfer(transfer, def.signature).await;
     }
 }

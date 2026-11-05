@@ -25,6 +25,7 @@ import type {
   MotorFrame,
   MotorTestRequest,
   MotorTestState,
+  NodeImageInfo,
   NodeParam,
   NodeParamValue,
   ParamEntry,
@@ -91,6 +92,12 @@ export interface Backend {
   dronecanSetParam(node: number, name: string, value: NodeParamValue): Promise<NodeParam>;
   dronecanSaveParams(node: number): Promise<string>;
   dronecanRestart(node: number): Promise<string>;
+  /** Describes a firmware file (base64 of an `.apj` or a raw `.bin`). */
+  dronecanInspectFirmware(dataBase64: string): Promise<NodeImageInfo>;
+  /** Starts serving the file to the node; progress arrives in the DroneCAN state. */
+  dronecanUpdateFirmware(node: number, dataBase64: string, force: boolean): Promise<string>;
+  dronecanCancelUpdate(): Promise<string>;
+  dronecanSetAllocation(enabled: boolean): Promise<string>;
   inspectorEnable(enabled: boolean): Promise<void>;
   inspectorWatch(key: string): Promise<void>;
   inspectorUnwatch(key: string): Promise<void>;
@@ -186,6 +193,10 @@ const tauriBackend: Backend = {
   dronecanSetParam: (node, name, value) => invoke("dronecan_set_param", { node, name, value }),
   dronecanSaveParams: (node) => invoke("dronecan_save_params", { node }),
   dronecanRestart: (node) => invoke("dronecan_restart", { node }),
+  dronecanInspectFirmware: (data) => invoke("dronecan_inspect_firmware", { data }),
+  dronecanUpdateFirmware: (node, data, force) => invoke("dronecan_update_firmware", { node, data, force }),
+  dronecanCancelUpdate: () => invoke("dronecan_cancel_update"),
+  dronecanSetAllocation: (enabled) => invoke("dronecan_set_allocation", { enabled }),
   inspectorEnable: (enabled) => invoke("inspector_enable", { enabled }),
   inspectorWatch: (key) => invoke("inspector_watch", { key }),
   inspectorUnwatch: (key) => invoke("inspector_unwatch", { key }),

@@ -12,7 +12,7 @@ use control_station_dronecan::{
     Catalog, Side, Value,
 };
 use control_station_link::{
-    ConnectionConfig, DroneCanService, DroneCanTiming, LinkManager, NodeParamValue,
+    ConnectionConfig, DroneCanService, DroneCanTiming, LinkManager, NodeParamValue, UpdatePhase,
 };
 use control_station_mavlink::{
     dialect::{
@@ -45,6 +45,14 @@ struct NodeConfig {
     silent: AtomicBool,
     /// Which CAN bus (0-based) the node sits on.
     bus: AtomicU8,
+    /// The vehicle reports itself armed.
+    armed: AtomicBool,
+    /// The `error` the node answers BeginFirmwareUpdate with (0 accepts).
+    begin_error: AtomicU8,
+    /// Stop asking for firmware chunks after this many (0 never stops).
+    fw_stall_after: AtomicU32,
+    /// Accept BeginFirmwareUpdate but never ask for the file.
+    fw_never_reads: AtomicBool,
 }
 
 /// Name, value, default value and (min, max) of a parameter of the fake node.
@@ -57,6 +65,12 @@ struct Node {
     saved: AtomicBool,
     restarted: AtomicBool,
     seen_gcs_status: AtomicBool,
+    /// Firmware the node has fetched so far.
+    fw_received: Mutex<Vec<u8>>,
+    fw_begin_count: AtomicU32,
+    fw_chunks: AtomicU32,
+    fw_done: AtomicBool,
+    read_id: AtomicU8,
 }
 
 struct Vehicle {
@@ -105,7 +119,63 @@ impl Node {
             saved: AtomicBool::new(false),
             restarted: AtomicBool::new(false),
             seen_gcs_status: AtomicBool::new(false),
+            fw_received: Mutex::new(Vec::new()),
+            fw_begin_count: AtomicU32::new(0),
+            fw_chunks: AtomicU32::new(0),
+            fw_done: AtomicBool::new(false),
+            read_id: AtomicU8::new(0),
         }
+    }
+
+    /// The node asks the ground station for the next piece of the firmware file.
+    fn read_request(&self, offset: usize) -> Vec<CanFrame> {
+        let ty = index("uavcan.protocol.file.Read");
+        let request = Value::strukt([
+            ("offset", Value::Uint(offset as u64)),
+            ("path", Value::strukt([("path", Value::text("fw.bin"))])),
+        ]);
+        let payload = catalog().encode(ty, Side::Request, &request, true).unwrap();
+        let def = &catalog().types[ty];
+        let id = self.read_id.fetch_add(1, Ordering::Relaxed) & 0x1F;
+        encode_transfer(
+            &self.transfer(
+                TransferKind::Request {
+                    service_id: 48,
+                    destination: 127,
+                },
+                id,
+                payload,
+            ),
+            def.signature,
+            false,
+            0,
+        )
+    }
+
+    /// A piece of firmware arrived: keep it and ask for the next one.
+    fn on_file_data(&self, response: &Value) -> Vec<CanFrame> {
+        if response.get("error.value").and_then(Value::as_i64) != Some(0) {
+            return vec![]; // not found: the ground station gave up on us
+        }
+        let data: Vec<u8> = response
+            .get("data")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .map(|v| v.as_u64().unwrap() as u8)
+            .collect();
+        let chunks = self.fw_chunks.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut received = self.fw_received.lock().unwrap();
+        received.extend_from_slice(&data);
+        if data.len() < 256 {
+            self.fw_done.store(true, Ordering::Relaxed);
+            return vec![];
+        }
+        let stall = self.config.fw_stall_after.load(Ordering::Relaxed);
+        if stall != 0 && chunks >= stall {
+            return vec![];
+        }
+        self.read_request(received.len())
     }
 
     fn transfer(&self, kind: TransferKind, transfer_id: u8, payload: Vec<u8>) -> Transfer {
@@ -194,7 +264,7 @@ impl Node {
                 let payload = catalog()
                     .encode(ty, Side::Response, &response, true)
                     .unwrap();
-                encode_transfer(
+                let mut frames = encode_transfer(
                     &self.transfer(
                         TransferKind::Response {
                             service_id,
@@ -206,7 +276,28 @@ impl Node {
                     def.signature,
                     false,
                     0,
-                )
+                );
+                // An accepted update: the node starts fetching the image right away.
+                if def.full_name == "uavcan.protocol.file.BeginFirmwareUpdate"
+                    && self.config.begin_error.load(Ordering::Relaxed) == 0
+                    && !self.config.fw_never_reads.load(Ordering::Relaxed)
+                {
+                    self.fw_received.lock().unwrap().clear();
+                    self.fw_chunks.store(0, Ordering::Relaxed);
+                    self.fw_done.store(false, Ordering::Relaxed);
+                    frames.extend(self.read_request(0));
+                }
+                frames
+            }
+            TransferKind::Response {
+                service_id: 48,
+                destination,
+            } if destination == NODE => {
+                let ty = index("uavcan.protocol.file.Read");
+                let response = catalog()
+                    .decode(ty, Side::Response, &transfer.payload, true)
+                    .unwrap();
+                self.on_file_data(&response)
             }
             _ => vec![],
         }
@@ -283,6 +374,27 @@ impl Node {
                     None => Some(self.param_response(usize::MAX)),
                 }
             }
+            "uavcan.protocol.file.BeginFirmwareUpdate" => {
+                assert_eq!(
+                    request.get("source_node_id").and_then(Value::as_u64),
+                    Some(127)
+                );
+                assert_eq!(
+                    request
+                        .get("image_file_remote_path.path")
+                        .and_then(Value::as_text)
+                        .as_deref(),
+                    Some("fw.bin")
+                );
+                self.fw_begin_count.fetch_add(1, Ordering::Relaxed);
+                Some(Value::strukt([
+                    (
+                        "error",
+                        Value::Uint(u64::from(self.config.begin_error.load(Ordering::Relaxed))),
+                    ),
+                    ("optional_error_message", Value::text("")),
+                ]))
+            }
             "uavcan.protocol.param.ExecuteOpcode" => {
                 self.saved.store(true, Ordering::Relaxed);
                 Some(Value::strukt([
@@ -319,6 +431,7 @@ impl Vehicle {
 
     async fn start(gcs_port: u16, config: Arc<NodeConfig>) -> Self {
         let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let heartbeat_config = config.clone();
         let vehicle = Self {
             socket: socket.clone(),
             target: format!("127.0.0.1:{gcs_port}"),
@@ -338,7 +451,11 @@ impl Vehicle {
                     custom_mode: 0,
                     mavtype: MavType::MAV_TYPE_QUADROTOR,
                     autopilot: MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
-                    base_mode: MavModeFlag::empty(),
+                    base_mode: if heartbeat_config.armed.load(Ordering::Relaxed) {
+                        MavModeFlag::MAV_MODE_FLAG_SAFETY_ARMED
+                    } else {
+                        MavModeFlag::empty()
+                    },
                     system_status: MavState::MAV_STATE_STANDBY,
                     mavlink_version: 3,
                 });
@@ -506,6 +623,8 @@ fn fast() -> DroneCanTiming {
         request_timeout: Duration::from_millis(300),
         request_attempts: 4,
         offline_after: Duration::from_millis(500),
+        update_start_timeout: Duration::from_millis(800),
+        update_stall_timeout: Duration::from_millis(500),
         tick: Duration::from_millis(20),
     }
 }
@@ -718,4 +837,373 @@ async fn a_node_that_goes_quiet_is_shown_offline() {
         rig.service.status().nodes.first().is_some_and(|n| n.online)
     })
     .await;
+}
+
+// ---- node firmware update ----
+
+const DESCRIPTOR_SIGNATURE: [u8; 8] = [0xD7, 0xE4, 0xF7, 0xBA, 0xD0, 0x0F, 0x9B, 0xEE];
+
+/// A firmware image of `len` bytes that carries an application descriptor with `crc`.
+fn image(crc: u64, len: usize) -> Vec<u8> {
+    let mut data: Vec<u8> = (0..len).map(|i| (i % 251) as u8).collect();
+    data[64..72].copy_from_slice(&DESCRIPTOR_SIGNATURE);
+    data[72..80].copy_from_slice(&crc.to_le_bytes());
+    data
+}
+
+const NEW_CRC: u64 = 0xAAAA_BBBB_CCCC_DDDD;
+
+#[tokio::test]
+async fn an_update_serves_the_whole_image_to_the_node() {
+    let rig = started(1).await;
+    let firmware = image(NEW_CRC, 2000);
+    let message = rig
+        .service
+        .start_update(NODE, firmware.clone(), false)
+        .await
+        .unwrap();
+    assert!(message.contains("2000 bytes"), "{message}");
+    wait_until("the transfer to finish", || {
+        rig.service
+            .status()
+            .update
+            .is_some_and(|u| u.phase == UpdatePhase::Done)
+    })
+    .await;
+    let update = rig.service.status().update.unwrap();
+    assert_eq!((update.node, update.sent, update.total), (NODE, 2000, 2000));
+    assert_eq!(*rig.vehicle.node.fw_received.lock().unwrap(), firmware);
+    assert_eq!(rig.vehicle.node.fw_begin_count.load(Ordering::Relaxed), 1);
+    // The node is free again.
+    assert!(rig.service.list_params(NODE).await.is_ok());
+}
+
+#[tokio::test]
+async fn an_image_the_node_already_runs_is_not_sent_unless_forced() {
+    let rig = started(1).await;
+    let same = image(0x1122_3344_5566_7788, 600);
+    let message = rig
+        .service
+        .start_update(NODE, same.clone(), false)
+        .await
+        .unwrap();
+    assert!(message.contains("already runs"), "{message}");
+    assert_eq!(rig.vehicle.node.fw_begin_count.load(Ordering::Relaxed), 0);
+    assert!(rig.service.status().update.is_none());
+    rig.service.start_update(NODE, same, true).await.unwrap();
+    wait_until("the forced transfer", || {
+        rig.vehicle.node.fw_done.load(Ordering::Relaxed)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn updates_are_refused_in_the_cases_that_would_be_unsafe() {
+    let rig = started(1).await;
+    let firmware = image(NEW_CRC, 600);
+    assert!(rig.service.start_update(NODE, vec![], false).await.is_err());
+    assert!(rig
+        .service
+        .start_update(NODE, b"{}".to_vec(), false)
+        .await
+        .is_err());
+    let unknown = rig
+        .service
+        .start_update(77, firmware.clone(), false)
+        .await
+        .unwrap_err();
+    assert!(unknown.to_string().contains("not on the bus"), "{unknown}");
+
+    // The node says no.
+    rig.config.begin_error.store(1, Ordering::Relaxed);
+    let refused = rig
+        .service
+        .start_update(NODE, firmware.clone(), false)
+        .await
+        .unwrap_err();
+    assert!(refused.to_string().contains("refused"), "{refused}");
+    assert_eq!(
+        rig.service.status().update.unwrap().phase,
+        UpdatePhase::Failed
+    );
+    assert!(
+        rig.service.list_params(NODE).await.is_ok(),
+        "the node was released"
+    );
+    rig.config.begin_error.store(0, Ordering::Relaxed);
+
+    // An armed vehicle never updates a node.
+    rig.config.armed.store(true, Ordering::Relaxed);
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let armed = rig
+        .service
+        .start_update(NODE, firmware, false)
+        .await
+        .unwrap_err();
+    assert!(armed.to_string().contains("armed"), "{armed}");
+    assert_eq!(
+        rig.vehicle.node.fw_begin_count.load(Ordering::Relaxed),
+        1,
+        "only the refused attempt reached the node"
+    );
+}
+
+#[tokio::test]
+async fn a_stalled_or_ignored_update_fails_by_itself() {
+    let rig = started(1).await;
+    rig.config.fw_stall_after.store(2, Ordering::Relaxed);
+    rig.service
+        .start_update(NODE, image(NEW_CRC, 3000), false)
+        .await
+        .unwrap();
+    wait_until("the stall", || {
+        rig.service
+            .status()
+            .update
+            .is_some_and(|u| u.phase == UpdatePhase::Failed)
+    })
+    .await;
+    let update = rig.service.status().update.unwrap();
+    assert!(update.message.contains("stalled"), "{}", update.message);
+    assert!(update.sent > 0 && update.sent < update.total);
+
+    // A node that is told but never asks.
+    rig.config.fw_stall_after.store(0, Ordering::Relaxed);
+    rig.config.fw_never_reads.store(true, Ordering::Relaxed);
+    rig.service
+        .start_update(NODE, image(NEW_CRC, 3000), false)
+        .await
+        .unwrap();
+    wait_until("the start timeout", || {
+        rig.service
+            .status()
+            .update
+            .is_some_and(|u| u.phase == UpdatePhase::Failed)
+    })
+    .await;
+    assert!(rig
+        .service
+        .status()
+        .update
+        .unwrap()
+        .message
+        .contains("never asked"));
+}
+
+#[tokio::test]
+async fn an_update_can_be_cancelled_and_only_one_runs_at_a_time() {
+    let rig = started(1).await;
+    assert!(
+        rig.service.cancel_update().is_err(),
+        "nothing to cancel yet"
+    );
+    rig.config.fw_never_reads.store(true, Ordering::Relaxed);
+    rig.service
+        .start_update(NODE, image(NEW_CRC, 3000), false)
+        .await
+        .unwrap();
+    let second = rig
+        .service
+        .start_update(NODE, image(NEW_CRC, 3000), false)
+        .await
+        .unwrap_err();
+    assert!(
+        second.to_string().contains("another") || second.to_string().contains("busy"),
+        "{second}"
+    );
+    rig.service.cancel_update().unwrap();
+    let update = rig.service.status().update.unwrap();
+    assert_eq!(
+        (update.phase, update.message.as_str()),
+        (UpdatePhase::Failed, "cancelled")
+    );
+}
+
+#[tokio::test]
+async fn image_files_are_described_before_they_are_sent() {
+    let info = DroneCanService::inspect_image(&image(NEW_CRC, 500)).unwrap();
+    assert_eq!((info.format, info.size), ("bin", 500));
+    assert_eq!(info.crc.as_deref(), Some("AAAABBBBCCCCDDDD"));
+    let plain = DroneCanService::inspect_image(&[7; 300]).unwrap();
+    assert_eq!(
+        plain.crc, None,
+        "a file without a descriptor still works but is flagged"
+    );
+    assert!(DroneCanService::inspect_image(&[]).is_err());
+    assert!(DroneCanService::inspect_image(b"{ not an apj }").is_err());
+}
+
+// ---- dynamic node id allocation ----
+
+/// The replies of the ground station allocator that went out on the bus.
+fn allocation_replies(vehicle: &Vehicle) -> Vec<Value> {
+    let ty = index("uavcan.protocol.dynamic_node_id.Allocation");
+    let signature_of = |kind: &TransferKind| match kind {
+        TransferKind::Message { type_id } => catalog().message(*type_id).map(|t| t.signature),
+        _ => None,
+    };
+    // The answers are longer than one frame once the unique id grows, so reassemble them.
+    let mut reassembler = Reassembler::new();
+    let now = Instant::now();
+    let frames: Vec<CanFrame> = vehicle
+        .received
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|m| match m {
+            MavMessage::CAN_FRAME(f) => Some(CanFrame {
+                id: f.id & 0x1FFF_FFFF,
+                data: f.data[..usize::from(f.len)].to_vec(),
+            }),
+            _ => None,
+        })
+        .collect();
+    frames
+        .iter()
+        .filter_map(|frame| reassembler.push(frame, now, signature_of))
+        .filter(|t| t.source == 127 && t.kind == TransferKind::Message { type_id: 1 })
+        .map(|t| {
+            catalog()
+                .decode(ty, Side::Message, &t.payload, true)
+                .unwrap()
+        })
+        .collect()
+}
+
+fn allocation_transfer(request: &Value) -> Vec<CanFrame> {
+    let ty = index("uavcan.protocol.dynamic_node_id.Allocation");
+    let payload = catalog().encode(ty, Side::Message, request, true).unwrap();
+    encode_transfer(
+        &Transfer {
+            priority: 30,
+            source: 0,
+            kind: TransferKind::Message { type_id: 1 },
+            transfer_id: 0,
+            payload,
+        },
+        catalog().types[ty].signature,
+        false,
+        0x1234,
+    )
+}
+
+/// A device without a node id asks for one: one stage of the request, then waits for the answer.
+async fn ask_for_id(rig: &Rig, first: bool, preferred: u8, chunk: &[u8]) -> Value {
+    let before = allocation_replies(&rig.vehicle).len();
+    let request = Value::strukt([
+        ("node_id", Value::Uint(u64::from(preferred))),
+        ("first_part_of_unique_id", Value::Bool(first)),
+        (
+            "unique_id",
+            Value::Array(chunk.iter().map(|b| Value::Uint(u64::from(*b))).collect()),
+        ),
+    ]);
+    for frame in allocation_transfer(&request) {
+        rig.vehicle.send_raw(&frame, 0).await;
+    }
+    wait_until("the allocator answer", || {
+        allocation_replies(&rig.vehicle).len() > before
+    })
+    .await;
+    allocation_replies(&rig.vehicle).remove(before)
+}
+
+fn uid(seed: u8) -> Vec<u8> {
+    (0..16).map(|i| seed.wrapping_add(i)).collect()
+}
+
+async fn allocate(rig: &Rig, preferred: u8, id: &[u8]) -> Value {
+    let one = ask_for_id(rig, true, preferred, &id[0..6]).await;
+    assert_eq!(one.get("node_id").and_then(Value::as_u64), Some(0));
+    assert_eq!(
+        one.get("unique_id")
+            .and_then(Value::as_array)
+            .unwrap()
+            .len(),
+        6
+    );
+    let two = ask_for_id(rig, false, preferred, &id[6..12]).await;
+    assert_eq!(
+        two.get("unique_id")
+            .and_then(Value::as_array)
+            .unwrap()
+            .len(),
+        12
+    );
+    ask_for_id(rig, false, preferred, &id[12..16]).await
+}
+
+#[tokio::test]
+async fn the_allocator_hands_out_node_ids_in_three_stages() {
+    let rig = started(1).await;
+    assert!(!rig.service.status().allocation.enabled, "off by default");
+    // Off: nobody answers.
+    let request = Value::strukt([
+        ("first_part_of_unique_id", Value::Bool(true)),
+        ("unique_id", Value::Array(vec![Value::Uint(1); 6])),
+    ]);
+    for frame in allocation_transfer(&request) {
+        rig.vehicle.send_raw(&frame, 0).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(allocation_replies(&rig.vehicle).is_empty());
+
+    rig.service.set_allocation(true).unwrap();
+    let first = allocate(&rig, 0, &uid(10)).await;
+    let first_id = first.get("node_id").and_then(Value::as_u64).unwrap();
+    assert_eq!(
+        first_id, 125,
+        "the highest free id when no preference is given"
+    );
+    assert_eq!(
+        first
+            .get("unique_id")
+            .and_then(Value::as_array)
+            .unwrap()
+            .len(),
+        16
+    );
+
+    // A device that wants a particular id gets it if it is free, otherwise the next free one.
+    let wanted = allocate(&rig, 42, &uid(50)).await;
+    assert_eq!(wanted.get("node_id").and_then(Value::as_u64), Some(42));
+    let taken = allocate(&rig, 42, &uid(90)).await;
+    assert_eq!(taken.get("node_id").and_then(Value::as_u64), Some(124));
+    // The same device asking again gets the same id back.
+    let again = allocate(&rig, 0, &uid(10)).await;
+    assert_eq!(again.get("node_id").and_then(Value::as_u64), Some(first_id));
+
+    let state = rig.service.status().allocation;
+    assert!(state.enabled);
+    assert_eq!(state.recent[0].node_id, 125, "newest first");
+    assert_eq!(state.recent.len(), 4);
+    assert_eq!(state.recent[3].unique_id.len(), 32);
+
+    rig.service.set_allocation(false).unwrap();
+    assert!(!rig.service.status().allocation.enabled);
+}
+
+#[tokio::test]
+async fn a_known_node_keeps_its_id_and_ids_in_use_are_never_reused() {
+    let rig = started(1).await;
+    rig.service.set_allocation(true).unwrap();
+    // The fake node (id 10) reports the unique id 01..10 in its node info.
+    let known: Vec<u8> = (1..=16).collect();
+    let reply = allocate(&rig, 0, &known).await;
+    assert_eq!(
+        reply.get("node_id").and_then(Value::as_u64),
+        Some(u64::from(NODE))
+    );
+    // A device that asks for the id of a node on the bus does not get it.
+    let other = allocate(&rig, NODE, &uid(200)).await;
+    assert_ne!(
+        other.get("node_id").and_then(Value::as_u64),
+        Some(u64::from(NODE))
+    );
+    // Stopping turns the allocator off.
+    rig.service.stop().unwrap();
+    assert!(
+        rig.service.set_allocation(true).is_err(),
+        "needs a running relay"
+    );
 }
