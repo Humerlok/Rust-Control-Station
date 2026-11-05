@@ -96,15 +96,16 @@ export function createMotorMock({ isConnected, isArmed, emitStatus }: Context): 
   const percentOf = (request: MotorTestRequest) => (request.throttleType === "pwm" ? (request.throttle - 1000) / 10 : request.throttle);
 
   return {
-    async motorFrame(frameClass, frameType): Promise<MotorFrame> {
+    async motorFrame(frameClass, frameType, genericCount): Promise<MotorFrame> {
       requireVehicle();
       if (frameClass === 1 && frameType === 1) return { known: true, className: "QUAD", typeName: "X", motors: QUAD_X };
       if (frameClass === 2 && frameType === 1) return { known: true, className: "HEXA", typeName: "X", motors: HEXA_X };
+      const count = Math.min(12, Math.max(1, genericCount ?? 4));
       return {
         known: false,
         className: null,
         typeName: null,
-        motors: [1, 2, 3, 4].map((order) => ({ label: label(order), testOrder: order, output: null, rotation: null })),
+        motors: Array.from({ length: count }, (_, i) => ({ label: label(i + 1), testOrder: i + 1, output: null, rotation: null })),
       };
     },
     async motorStart(request) {

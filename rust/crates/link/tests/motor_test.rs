@@ -349,7 +349,7 @@ async fn watching_the_escs_requests_their_messages() {
 #[tokio::test]
 async fn frames_come_from_the_layout_table_or_are_generic() {
     let rig = rig(false).await;
-    let quad = rig.service.frame(Some(1), Some(1)).unwrap();
+    let quad = rig.service.frame(Some(1), Some(1), None).unwrap();
     assert!(quad.known);
     assert_eq!(quad.class_name.as_deref(), Some("QUAD"));
     assert_eq!(quad.motors.len(), 4);
@@ -358,13 +358,44 @@ async fn frames_come_from_the_layout_table_or_are_generic() {
     assert_eq!(quad.motors[1].output, Some(4));
     assert_eq!(quad.motors[1].rotation.as_deref(), Some("CW"));
 
-    let hexa = rig.service.frame(Some(2), Some(1)).unwrap();
+    let hexa = rig.service.frame(Some(2), Some(1), None).unwrap();
     assert_eq!(hexa.motors.len(), 6);
+    // A known frame ignores the generic count.
+    assert_eq!(
+        rig.service
+            .frame(Some(2), Some(1), Some(9))
+            .unwrap()
+            .motors
+            .len(),
+        6
+    );
 
-    let generic = rig.service.frame(None, None).unwrap();
+    let generic = rig.service.frame(None, None, None).unwrap();
     assert!(!generic.known);
     assert_eq!(generic.motors.len(), 4);
     assert_eq!(generic.motors[0].output, None);
+
+    // A frame that is not in the table (class 17, scripting matrix) takes the user's count.
+    let scripted = rig.service.frame(Some(17), Some(1), Some(8)).unwrap();
+    assert!(!scripted.known);
+    assert_eq!(scripted.motors.len(), 8);
+    assert_eq!(scripted.motors[7].label, "H");
+    assert_eq!(
+        rig.service
+            .frame(Some(17), Some(1), Some(0))
+            .unwrap()
+            .motors
+            .len(),
+        1
+    );
+    assert_eq!(
+        rig.service
+            .frame(Some(17), Some(1), Some(99))
+            .unwrap()
+            .motors
+            .len(),
+        12
+    );
 }
 
 #[tokio::test]

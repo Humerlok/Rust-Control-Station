@@ -30,6 +30,7 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - `ardupilot-meta::motor_layout`: embedded `data/motor_layout.json` (copy of the legacy `APMotorLayout.json`, 75 frames) giving each motor's output number, test-order letter and CW/CCW; generic 4 motors (8 for non-copter/rover) when the frame is unknown.
 - `link::MotorTestService`: start one / all (one command per motor, like the legacy tool) / sequence (vehicle-run), `stop_all` (always allowed), `MOT_SPIN_ARM/MIN` writes (0-30 %), ESC telemetry (`ESC_TELEMETRY_*`, `ESC_STATUS`) with `watch_esc` asking the vehicle to stream it while the screen is open. Rules enforced in Rust: disarmed only, throttle 0-100 % with >20 % needing `allowHigh`, duration 1-120 s, one test at a time.
 - Desktop: `motor_*` commands, `motor-test` event; UI `views/MotorTest.tsx` (Setup > Motor Test) with a props-off confirmation, confirmation of throttle changes above 10 %, always-enabled STOP ALL, per-motor buttons, ESC table, spin thresholds. `mockMotor.ts` backs `?mock=1`.
+- Frames outside the layout table (heli, scripting matrix class 17, coaxial...) get generic motors A, B, C...: the screen names the unknown class/type and offers a "Number of motors" field (1-12, passed to `MotorTestService::frame` as `generic_count`). Output number and rotation are unknown for those.
 - Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
 
 ## Next planned: Phase 6 DroneCAN

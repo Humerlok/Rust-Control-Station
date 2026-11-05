@@ -364,11 +364,13 @@ impl MotorTestService {
     }
 
     /// The motors the screen offers for `FRAME_CLASS` / `FRAME_TYPE` (the parameter values; the
-    /// caller reads them). A frame without a table entry gets generic motors A, B, C...
+    /// caller reads them). A frame without a table entry gets generic motors A, B, C...:
+    /// `generic_count` (1 to 12, the user's choice) of them, or a default by vehicle type.
     pub fn frame(
         &self,
         class: Option<u32>,
         frame_type: Option<u32>,
+        generic_count: Option<u8>,
     ) -> Result<MotorFrame, LinkError> {
         let (_, vehicle) = self.shared.link.selected_vehicle()?;
         let layout = class
@@ -398,7 +400,8 @@ impl MotorTestService {
                 known: false,
                 class_name: None,
                 type_name: None,
-                motors: (1..=fallback_motor_count(vehicle))
+                motors: (1..=generic_count
+                    .map_or_else(|| fallback_motor_count(vehicle), |n| n.clamp(1, MAX_MOTORS)))
                     .map(|order| MotorSlot {
                         label: label(order),
                         test_order: order,

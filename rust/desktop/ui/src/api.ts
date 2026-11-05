@@ -69,7 +69,8 @@ export interface Backend {
   radioCalibrationFinish(): Promise<string>;
   calibrationStatus(): Promise<CalibrationState>;
   /** The motors to offer for the frame (FRAME_CLASS / FRAME_TYPE values, when known). */
-  motorFrame(frameClass: number | null, frameType: number | null): Promise<MotorFrame>;
+  /** `genericCount` only applies to frames that are not in the layout table. */
+  motorFrame(frameClass: number | null, frameType: number | null, genericCount: number | null): Promise<MotorFrame>;
   motorStart(request: MotorTestRequest): Promise<string>;
   motorStartAll(request: MotorTestRequest, count: number): Promise<string>;
   motorStartSequence(request: MotorTestRequest, count: number): Promise<string>;
@@ -157,7 +158,7 @@ const tauriBackend: Backend = {
   calibrationCancel: () => invoke("calibration_cancel"),
   radioCalibrationFinish: () => invoke("radio_calibration_finish"),
   calibrationStatus: () => invoke("calibration_status"),
-  motorFrame: (frameClass, frameType) => invoke("motor_frame", { class: frameClass, frameType }),
+  motorFrame: (frameClass, frameType, genericCount) => invoke("motor_frame", { class: frameClass, frameType, genericCount }),
   motorStart: (request) => invoke("motor_start", { request }),
   motorStartAll: (request, count) => invoke("motor_start_all", { request, count }),
   motorStartSequence: (request, count) => invoke("motor_start_sequence", { request, count }),

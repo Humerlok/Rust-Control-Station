@@ -19,3 +19,5 @@
 .esc-table { width: 100%; border-collapse: collapse; }
 .esc-table th { text-align: left; color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 6px; border-bottom: 1px solid var(--border); }
 .esc-table td { padding: 3px 6px; border-bottom: 1px solid rgba(76, 86, 106, 0.4); }
+.motor-generic { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--warn); border-radius: var(--radius); background: rgba(208, 135, 112, 0.1); }
+.motor-generic label { display: flex; flex-direction: column; gap: 3px; max-width: 200px; color: var(--text); }

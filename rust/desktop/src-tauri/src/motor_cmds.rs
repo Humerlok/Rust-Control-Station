@@ -11,9 +11,10 @@ fn text<T>(result: Result<T, control_station_link::LinkError>) -> Result<T, Stri
 pub fn motor_frame(
     class: Option<u32>,
     frame_type: Option<u32>,
+    generic_count: Option<u8>,
     service: State<'_, MotorTestService>,
 ) -> Result<MotorFrame, String> {
-    text(service.frame(class, frame_type))
+    text(service.frame(class, frame_type, generic_count))
 }
 
 #[tauri::command]

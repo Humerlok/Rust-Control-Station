@@ -32,6 +32,8 @@ export function MotorTest({ telemetry, active, notify }: Props) {
   const [seconds, setSeconds] = useState("2");
   const [spinArm, setSpinArm] = useState("");
   const [spinMin, setSpinMin] = useState("");
+  // Only used for frames that are not in the layout table.
+  const [genericCount, setGenericCount] = useState("4");
   const [propsOff, setPropsOff] = useState(false);
   const [confirmedThrottle, setConfirmedThrottle] = useState<number | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -47,13 +49,13 @@ export function MotorTest({ telemetry, active, notify }: Props) {
     }
     let alive = true;
     api
-      .motorFrame(frameClass, frameType)
+      .motorFrame(frameClass, frameType, Number.isInteger(Number(genericCount)) && genericCount.trim() !== "" ? Number(genericCount) : null)
       .then((next) => alive && setFrame(next))
       .catch(() => alive && setFrame(null));
     return () => {
       alive = false;
     };
-  }, [connected, frameClass, frameType]);
+  }, [connected, frameClass, frameType, genericCount]);
 
   // Show the vehicle's current MOT_SPIN_* values until the user types their own.
   const currentArm = params.byName.get("MOT_SPIN_ARM")?.value;
@@ -162,10 +164,31 @@ export function MotorTest({ telemetry, active, notify }: Props) {
           <header>
             <h2>Test</h2>
             <span className="dim">
-              {frame?.known ? `Class ${frame.className}, type ${frame.typeName}` : frame ? "Frame unknown: generic motors" : ""}
+              {frame?.known ? `Class ${frame.className}, type ${frame.typeName}` : ""}
             </span>
           </header>
           <div className="motor-body">
+            {frame && !frame.known && (
+              <div className="motor-generic">
+                <p className="warn-text">
+                  {frameClass === null
+                    ? "This vehicle has no FRAME_CLASS parameter."
+                    : `Frame class ${frameClass}, type ${frameType ?? "?"} is not in the layout table.`}{" "}
+                  Motors are generic: the letters follow the test order, but the output number and rotation are unknown.
+                </p>
+                <label>
+                  Number of motors (1 to 12)
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    step={1}
+                    value={genericCount}
+                    onChange={(e) => setGenericCount(e.target.value)}
+                  />
+                </label>
+              </div>
+            )}
             <div className="motor-controls">
               <label>
                 Throttle type
