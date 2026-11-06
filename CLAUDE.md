@@ -43,8 +43,9 @@ npm run tauri          # launch desktop app (runs from ../src-tauri)
 UI-only loop (no Tauri, mock backend): `npm run dev` in `rust/desktop/ui`, then open `/?mock=1`.
 `npm run lint` runs ESLint 9 (flat config in `eslint.config.js`) on `src`.
 
-On Linux the Tauri build needs an untracked `rust/desktop/src-tauri/icons/icon.png` (the config only lists
-an `.ico`); see HANDOFF.md "Linux / Jetson development" for the run recipe and CDP caveats.
+The icon set in `rust/desktop/src-tauri/icons/` is tracked, so Linux builds need nothing extra; see HANDOFF.md
+"Linux / Jetson development" for the run recipe and CDP caveats. Beta installers (Windows/Linux, x86_64/ARM64) are
+built by `.github/workflows/beta-release.yml` on a `beta-*` tag; see HANDOFF.md "Beta installers" and `Beta/BETA.md`.
 
 If the Tauri CLI can't find `tauri.conf.json`, run directly from `rust/desktop/src-tauri`:
 ```powershell

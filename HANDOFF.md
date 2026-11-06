@@ -1,8 +1,18 @@
 # Handoff: Rust Control Station
 
-## Current state (2026-11-05)
+## Current state (2026-11-06)
 
-Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are all committed: `6535baf80` (P1), `27fb0aa42` (P2), `dc597b77b` (P3), `286e407c8` (P4a MAVFTP) and `ad2b8063c` (P4b Firmware). Nothing is pushed. **Phase 4 was built on a Jetson Orin running Ubuntu, and the user tested it personally against a real Cube Orange.** The details of what worked or failed there were not recorded in the repo, so the "Not verified" lists below may be partly outdated (see "Hardware testing status"). The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine and has only 4 phases; there is no Phase 5 plan yet, see "Next".
+Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-6 are committed and pushed to `master`: `6535baf80` (P1), `27fb0aa42` (P2), `dc597b77b` (P3), `286e407c8` (P4a MAVFTP), `ad2b8063c` (P4b Firmware), `fc7fcb7b1` + `2d6067d5a` (P5 Motor Test), `70c7c108a` (P6a), `4523c7fe0` (P6b), `ad239dc97` (P6c DroneCAN) and `a4335754c` (beta installers). **Phase 4 was built on a Jetson Orin running Ubuntu, and the user tested it personally against a real Cube Orange.** The details of what worked or failed there were not recorded in the repo, so the "Not verified" lists below may be partly outdated (see "Hardware testing status"). The original plan file (`C:\Users\renan\.claude\plans\floofy-sauteeing-toast.md`) lives on the Windows machine.
+
+Checks on 2026-11-06 (Linux ARM64, Jetson): `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (298 passed, 0 failed), `npm run build` and `npm run lint` all clean. The UI build warns that one chunk is over 500 kB (harmless, code-splitting would fix it).
+
+## Beta installers (workflow committed, first release NOT yet built)
+
+- `.github/workflows/beta-release.yml` builds on a `beta-*` tag (or manually from Actions > Beta release > Run workflow, which publishes nothing and keeps the files as run artifacts). Matrix: `windows-latest` (x64), `windows-11-arm`, `ubuntu-22.04` (x86_64), `ubuntu-22.04-arm`. Outputs: NSIS `.exe` + `.msi` (Windows), `.deb`, `.rpm`, `.AppImage` (Linux), attached to a GitHub pre-release by `softprops/action-gh-release`. Unsigned (Windows SmartScreen warns).
+- `tauri.conf.json` bundle targets are `nsis, msi, deb, rpm, appimage` and the icon set in `src-tauri/icons/` is now tracked (generated with `tauri icon` from `mpdesktop.ico`, which only has 128 px, so the art is upscaled and soft; replace with a larger source). Android/iOS icon folders were removed.
+- `Beta/BETA.md` holds the tester instructions (download, install per OS, serial `dialout` group, what to test, how to report) and the maintainer recipe for a new version.
+- Not verified: no `tauri build` has run in CI yet. Open questions: the bundle output path assumed to be `rust/target/release/bundle/` (workspace target dir), the `windows-11-arm` runner, Linux package names on Ubuntu 22.04 (ARM included), and `.rpm` generation. A `beta-0.1.0` tag was pushed once by mistake from an unmerged commit and deleted; it does not exist now.
+- Release recipe: version must match in `rust/Cargo.toml`, `src-tauri/tauri.conf.json` and `ui/package.json` (all 0.1.0), then `git tag beta-X.Y.Z && git push origin beta-X.Y.Z`. The app identifier is still `org.ardupilot.rust-control-station`; consider a Speedbird one before wide distribution.
 
 **Phase 4b, Firmware**:
 - `firmware` crate (pure): `manifest` (manifest.json.gz parse, `select` by board/vehicle/channel, `boards`, `is_trusted_url` = firmware.ardupilot.org only), `apj` (JSON + base64 + zlib image, padded to 4 bytes, size checks), `bootloader` (request bytes, status check, bootloader CRC32 and `crc32_pad`, `boards_compatible`; board 33 accepts fmuv2/9 images).
@@ -24,7 +34,7 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - Replay keeps an in-memory mission/fence/rally store and speaks the mission protocol; it was split into `link/src/replay/`.
 - The `mavlink` crate now has `mav2-message-extensions` (needed for `mission_type`); this added extension fields to some messages, so literals use `..Default::default()`.
 
-## Phase 5: Motor Test (implemented, uncommitted)
+## Phase 5: Motor Test (committed `fc7fcb7b1`, `2d6067d5a`)
 
 - `commands::motor_test` (`MAV_CMD_DO_MOTOR_TEST`), `commands::set_message_interval`, `MotorThrottleType`.
 - `ardupilot-meta::motor_layout`: embedded `data/motor_layout.json` (copy of the legacy `APMotorLayout.json`, 75 frames) giving each motor's output number, test-order letter and CW/CCW; generic 4 motors (8 for non-copter/rover) when the frame is unknown.
@@ -33,7 +43,7 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 - Frames outside the layout table (heli, scripting matrix class 17, coaxial...) get generic motors A, B, C...: the screen names the unknown class/type and offers a "Number of motors" field (1-12, passed to `MotorTestService::frame` as `generic_count`). Output number and rotation are unknown for those.
 - Tested: unit tests, 9 loopback tests (`link/tests/motor_test.rs`), the mock flow in a browser. Not tested on the real window or on a Cube Orange (props off, bench only).
 
-## Phase 6c: DroneCAN Inspector (implemented, uncommitted)
+## Phase 6c: DroneCAN Inspector (committed `ad239dc97`)
 
 - `link::dronecan_inspector` (used by `DroneCanService`): every transfer that comes off the bus is counted per (source node, kind, type id) with count, rate and payload bandwidth over a 3 s window, the last decoded value flattened to rows (`status.health`, a union under its variant such as `value.integer_value`, arrays of numbers as arrays, byte arrays that read as text shown as strings, arrays of structs as `cells[0].volts`) and watched numeric fields recorded as series (`node/kind/typeId/field`, arrays as `field[3]`). Kind is 0 broadcast, 1 service request, 2 service response; the node is the "system", the kind the "component". It emits the same `InspectorSnapshot` as the MAVLink inspector (types and `parse_key` are shared), about four per second and only while enabled; stopping DroneCAN disables it. Our own frames are not echoed by the autopilot, so requests we send do not show, only what the bus carries.
 - Desktop: `dronecan_inspector_{enable,watch,unwatch,clear}`, event `dronecan-inspector`. The DroneCAN screen has Nodes and Inspector tabs; the inspector reuses the MAVLink inspector's tree, field table, pinning, search, graph and copy through `InspectorPanel` (`views/Inspector.tsx`, with `originLabel`, `emptyText`, `storagePrefix`) and an `InspectorSource` (`components/inspector/useInspector.ts`), so the MAVLink screen is unchanged. Mock traffic in `mockDroneCan.ts`.
@@ -60,7 +70,7 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-4 are
 
 ## Next planned
 
-Phase 6 is complete apart from the items listed under 6c. Candidates: test DroneCAN on a real CAN bus and peripheral, download peripheral firmware from the ArduPilot server, verify the node CRC after an update, the message filter, SLCAN/multicast transports. See the plan file for what was left out on purpose.
+Order proposed: finish organising the repo, then build the first beta installers and have testers report. Candidates after that: test DroneCAN on a real CAN bus and peripheral, download peripheral firmware from the ArduPilot server, verify the node CRC after an update, the DroneCAN message filter, SLCAN/multicast transports. From earlier phases: MAVFTP tree view, recursive delete/folder download, resume and reset-to-default using the `param.pck` defaults; firmware auto-select of the board from USB ids, `.abin`/`.px4` files, external flash images, DFU/BLE; STATUSTEXT chunk reassembly, `.plan`/KML import and survey grid, Copter-only tuning, the Inspector 81 px overflow at 1024 px width, bitflag decoding, and a larger app icon. Logs and SITL from the legacy app are not started.
 
 ## Verified
 
@@ -91,7 +101,7 @@ Launch the desktop app (see "Linux / Jetson" below), connect (UDP/serial/TCP), o
 ## Linux / Jetson development
 
 - Rust is installed with rustup in `~/.cargo` (`export PATH=$HOME/.cargo/bin:$PATH`); `webkit2gtk-4.1` is present, so `control-station-desktop` compiles.
-- Tauri needs `rust/desktop/src-tauri/icons/icon.png` on Linux (the config lists only an `.ico`). It is not tracked; create any 32x32 RGBA PNG locally. Delete it before committing if you do not want it in the tree.
+- The icon set in `rust/desktop/src-tauri/icons/` is tracked and listed in `tauri.conf.json`, so Linux builds need nothing extra.
 - Run: `cd rust/desktop/ui && npm ci && npm run tauri` (starts Vite on 5173; the first Rust build takes a few minutes). UI only: `npm run dev -- --port 5199`, open `/?mock=1`.
 - CDP driving works with Vivaldi (`--remote-debugging-port=9222`, Node 18 needs the `ws` package outside the repo): `Runtime.evaluate` and tab clicks work, but every `Page.*` call (`Page.enable`, `captureScreenshot`) hangs, headless or not, and `/json/new` also hangs. Attach to the already-open page from `/json` instead. When killing helpers use `pkill -f '[v]ivaldi'`-style patterns so the pattern does not match the calling shell.
 
@@ -109,13 +119,6 @@ Launch the desktop app (see "Linux / Jetson" below), connect (UDP/serial/TCP), o
 
 The user reports that a firmware update on a Cube Orange (Ubuntu/Jetson Orin) worked at first sight. The details below were written before that test and are still the list of things not individually confirmed or recorded. Unverified: bootloader timing (sync tries, 60 s erase timeout), optional GET_CHIP/GET_CHIP_DES/GET_SN on real bootloaders, reboot-to-bootloader across boards (USB port name/id often changes after the reboot; the screen refreshes ports after 3 s), the manifest `USBID` auto-detection (parsed, but the UI does not match boards by USB id yet; vid/pid are exposed on ports), boards with external flash (refused), and `.apj` download from the real server. First test with a spare board, props off, and report the board, bootloader revision and any error text.
 
-## Next
-
-Phase 4 is committed. There is no Phase 5 plan; pick it from the legacy app (logs, SITL, more setup screens) and from the gaps below. Candidate items:
-- MAVFTP: tree view, recursive delete/folder download, resume, reset-to-default using the `param.pck` defaults.
-- Firmware: auto-select the board from USB ids, ArduPilot `.abin`/PX4 `.px4` files, external flash images, DFU/BLE.
-- Earlier phases: STATUSTEXT chunk reassembly, `.plan`/KML import and survey grid, Copter-only tuning, Inspector 81 px overflow at 1024 px width, bitflag decoding.
-
 ## Working rules
 
-Keep the C# application as reference only. Protocol and safety behavior live in Rust crates, never in React. Use a licensed/self-hosted offline map provider; never add OSM public-tile prefetch (live viewing with attribution is fine). After changes run `cargo fmt`, Clippy with `-D warnings`, `cargo test --workspace` and `npm run build`, then update this file. Launch with `cd rust/desktop/ui && npm run tauri`; on Linux Tauri needs `icons/icon.png` (the config only lists an `.ico`), so a local untracked one is required to compile `control-station-desktop`; if port 5173 is busy an orphaned Vite from an earlier run holds it (stop only that PID). `tauri dev` does not rebuild when a new capability file appears: touch `src-tauri/src/main.rs`.
+Keep the C# application as reference only. Protocol and safety behavior live in Rust crates, never in React. Use a licensed/self-hosted offline map provider; never add OSM public-tile prefetch (live viewing with attribution is fine). After changes run `cargo fmt`, Clippy with `-D warnings`, `cargo test --workspace` and `npm run build`, then update this file. Launch with `cd rust/desktop/ui && npm run tauri`; if port 5173 is busy an orphaned Vite from an earlier run holds it (stop only that PID). `tauri dev` does not rebuild when a new capability file appears: touch `src-tauri/src/main.rs`.
