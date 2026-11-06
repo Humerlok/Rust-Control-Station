@@ -1,51 +1,17 @@
+# Rust / Node build output
+target/
+node_modules/
+rust/desktop/ui/dist/
+
+# Secrets and signing material
 *.pfx
-*.suo
-*.user
-bin/
-obj/
-.vs/
-/Msi
-packages/
-*.psess
-*.pyc
-/ExtLibs/Mavlink/mavlink
-/LogAnalyzer/py2exe/
-*.vspx
-*.appx
-*.zip
-/Drivers/gencert.bat
-/Drivers/makecert.exe
-/Drivers/signing.url
-/ExtLibs/Zeroconf
-/ExtLibs/wasm/wwwroot/2018-09-09 18-15-17.txt
-/ExtLibs/Test
-/Drivers/DriverCleanup.pdb
-/Drivers/DriverCleanup.exe.config
-/Drivers/DriverCleanup.exe
-/objcore
-*.diagsession
-/ExtLibs/WindowsStore/BundleArtifacts
-/ExtLibs/runtime
-/ExtLibs/Xamarin/Xamarin.Android/.__override__
-/ExtLibs/UsbSerialForAndroid/usb-serial-for-android-3.2.0
-/ExtLibs/UsbSerialForAndroid/usb-serial-for-android-3.3.0
-/ExtLibs/Xamarin/opentk
-*.binlog
-docs/
-*.Test/
-*.jar
-*.cache
-/Plugins/Dowding/server/node_modules
-/Plugins/Dowding/server/package-lock.json
-/ExtLibs/Tests
 *.p12
 *.pem
 *.key
+
+# Editor and local tool settings
 /.vscode
 /.idea
-obj2/
-obj3/
-
 /.claude/settings.local.json
 /CLAUDE.md
 

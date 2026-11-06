@@ -4,13 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-This repository contains two codebases: the **legacy Mission Planner** (ArduPilot's C#/.NET
-Framework WinForms GCS) and a **new Rust Control Station** being built in `rust/` to replace it.
-The legacy app is the behavioral reference; new feature work goes in Rust.
-
-Mission Planner configures, flashes, plans missions for, and monitors ArduPilot/PX4 vehicles
-over MAVLink. The same C# source also targets Android (Xamarin) and macOS/iOS via a
-cross-platform library build.
+This repository contains the **Rust Control Station** in `rust/`, the successor of ArduPilot's
+Mission Planner. The legacy C# code was removed from the tree; it lives in git history under the
+tag `legacy-mission-planner` (`git show legacy-mission-planner:<path>`) and is the behavioral
+reference. New feature work goes in Rust.
 
 ## Rust Control Station (`rust/`)
 
@@ -144,81 +141,3 @@ parsing large `.BIN` logs is otherwise unusably slow.
 - Tests go alongside modules; cross-crate tests under each crate's `tests/`. Use loopback
   UDP/TCP or fakes for transport tests; hardware/SITL tests must be opt-in.
 - Commit messages: concise imperative subject with area prefix (`desktop: add connection status`).
-
-## Legacy C# Mission Planner
-
-### Build & run
-
-Windows + Visual Studio 2022 + MSBuild only. No Linux/macOS build support.
-
-```bat
-git submodule update --init
-.nuget\nuget.exe restore MissionPlanner.sln
-msbuild -v:m -restore -t:Build -p:Configuration=Release MissionPlanner.sln
-```
-
-- Output: `bin\Release\net461\` (the `net461` folder name is intentional, not a separate target).
-- `build.bat` / `build - debug.bat` / `build - Clean.bat` are maintainer scripts (packaging/signing).
-- Import VS workloads via `vs2022.vsconfig`.
-
-### Cross-platform library build (Android / Mac)
-
-`MissionPlannerLib.csproj` (`netstandard2.0`) recompiles with `DefineConstants=...;LIB`.
-Android packaging via `build - Lib.ps1` and `ExtLibs/Xamarin/Xamarin.Android`.
-
-### Tests
-
-`MissionPlannerTests/` — MSTest project (`net472`). CI runs MAVLink regression tests
-(`Sysid32Tests`) but not the full suite.
-
-```bat
-vstest.console.exe bin\Release\net461\MissionPlannerTests.dll
-vstest.console.exe MissionPlannerTests.dll /Tests:DetectBoardTest   :: single test
-```
-
-### CI
-
-`.github/workflows/main.yml` ("DotNet Build") plus `android.yml`, `mac.yml`. Builds on
-Windows with MSBuild; tagging `beta` publishes a release.
-
-## Architecture (legacy C# — behavioral reference)
-
-Dependency flow: **transport → protocol → vehicle state → UI**.
-
-- **`Program.cs`** — entry point and crash handling.
-- **`MainV2.cs`** — main Form, central hub. Owns `MainV2.comPort` (`MAVLinkInterface`), hosts
-  menu, swaps `GCSViews` screens. ~190 KB — navigate by symbol.
-- **`GCSViews/`** — top-level screens: `FlightData`, `FlightPlanner`, `InitialSetup`,
-  `ConfigurationView`, `SITL`, `Help`.
-
-### Connection & telemetry stack (`ExtLibs/`)
-
-- **`ExtLibs/Comms/`** — transport layer (`ICommsSerial`): serial, TCP, UDP, BLE, NTRIP.
-- **`ExtLibs/Mavlink/`** — MAVLink protocol: generated message structs, `MavlinkParse`, CRC.
-- **`ExtLibs/ArduPilot/Mavlink/`** — live link: `MAVLinkInterface` (packet I/O, params,
-  missions), `MAVState` (per-vehicle state + `CurrentState`), `MAVList` (multi-vehicle).
-- **`ExtLibs/ArduPilot/CurrentState.cs`** — decoded telemetry model. UI binds to
-  `MainV2.comPort.MAV.cs`.
-
-The solution has ~93 projects; `ExtLibs/` is the bulk of functionality. Notable: `Controls/`,
-`Core/` + `Interfaces/`, `Maps/` + `GMap.NET.*`, `GDAL`/`ProjNet`/`SharpKml`, `DroneCAN`.
-
-### Plugins & scripting
-
-- `Plugin/` + `Plugins/` — runtime plugin system (`Plugin` base class, `PluginLoader`).
-- `Script.cs` + `Scripts/` — IronPython scripting host.
-
-## Conventions & gotchas (legacy C#)
-
-- **`LIB` conditional compilation is the #1 trap.** Code compiles as both desktop `Exe` and
-  `netstandard2.0` library. Desktop-only APIs (`System.Drawing`, WinForms, P/Invoke) must be
-  guarded with `#if !LIB` or the Android/Mac build breaks. `extern alias Drawing;` is guarded
-  by `#if !LIB`; `ZZZLibShims.cs` provides cross-platform shims.
-- **Localization.** English `.resx` is source of truth. **Do not hand-edit non-English `.resx`** —
-  translations flow back via Crowdin. App strings use `Strings.resx` / `L10N` class.
-- **WinForms file triplets.** `Foo.cs` (logic) + `Foo.Designer.cs` (generated layout) + `Foo.resx`.
-- **`createproj.bat`** regenerates `<Compile>`/`<EmbeddedResource>` item lists when files change.
-- **`ServiceLocator`** (`ExtLibs/Interfaces/ServiceLocator.cs`) — lightweight DI, resolve with
-  `ServiceLocator.Get<T>()`.
-- **`.editorconfig`** downgrades many `CAxxxx` rules to suggestion/silent — don't treat as warnings.
-- Do not add Rust dependencies to the C# projects.

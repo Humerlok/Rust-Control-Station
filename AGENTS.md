@@ -2,9 +2,7 @@
 
 ## Project Structure
 
-The legacy Mission Planner application is C#/.NET Framework. Its WinForms entry points live at the repository root; `GCSViews/` contains screens, `ExtLibs/` contains protocol and shared libraries, `MissionPlannerTests/` contains MSTest tests, and `Resources/` stores assets. Treat that code as a behavioral reference during the migration.
-
-The new control station lives entirely in `rust/`. Its workspace separates MAVLink parsing, transports, vehicle state, command workflows, map caching, and the Tauri desktop shell. Keep domain crates independent of Tauri and React.
+The control station lives entirely in `rust/`. The legacy C# Mission Planner was removed from the tree; it remains in git history under the tag `legacy-mission-planner` (`git show legacy-mission-planner:<path>`) as a behavioral reference. Its workspace separates MAVLink parsing, transports, vehicle state, command workflows, map caching, and the Tauri desktop shell. Keep domain crates independent of Tauri and React.
 
 ## Build, Test, and Development
 
@@ -17,8 +15,6 @@ cargo test --workspace   # unit and integration tests
 cd desktop/ui; npm ci; npm run dev
 cd ..; cargo tauri dev   # launch the desktop application
 ```
-
-The legacy application still builds through `MissionPlanner.sln` with Visual Studio/MSBuild; do not add Rust dependencies to its projects.
 
 ## Style and Boundaries
 
