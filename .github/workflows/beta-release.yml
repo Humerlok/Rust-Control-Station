@@ -41,8 +41,8 @@ jobs:
         working-directory: rust/desktop/ui
 
       - name: Gerar instaladores
-        run: npx tauri build
-        working-directory: rust/desktop/ui
+        run: npx --prefix ../ui tauri build
+        working-directory: rust/desktop/src-tauri
 
       - name: Guardar instaladores
         uses: actions/upload-artifact@v4
