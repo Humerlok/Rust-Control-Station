@@ -33,5 +33,7 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: rust/desktop/ui/package-lock.json
-      - run: npm install --prefix desktop/ui
-      - run: npm run build --prefix desktop/ui
+      - run: npm ci
+        working-directory: rust/desktop/ui
+      - run: npm run build
+        working-directory: rust/desktop/ui
