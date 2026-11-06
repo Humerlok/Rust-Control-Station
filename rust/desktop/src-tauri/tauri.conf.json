@@ -7,7 +7,7 @@
   "app": { "windows": [{ "title": "Rust Control Station", "width": 1440, "height": 900, "minWidth": 1080, "minHeight": 680 }] },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "icon": ["../../../mpdesktop.ico"]
+    "targets": ["nsis", "msi", "deb", "rpm", "appimage"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
   }
 }
