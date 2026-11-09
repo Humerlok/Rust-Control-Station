@@ -2,7 +2,7 @@
 //! `link` feeds packets in, the desktop shell reads snapshots out.
 use control_station_ardupilot_meta::VehicleType;
 use control_station_mavlink::{
-    dialect::{MavAutopilot, MavModeFlag},
+    dialect::{MavAutopilot, MavModeFlag, MavType, STATUSTEXT_DATA},
     MavMessage,
 };
 use serde::{Deserialize, Serialize};
@@ -36,70 +36,9 @@ pub struct StatusText {
     pub component_id: u8,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct FieldInfo {
-    pub key: &'static str,
-    pub label: &'static str,
-    pub unit: &'static str,
-}
+mod fields;
 
-const fn f(key: &'static str, label: &'static str, unit: &'static str) -> FieldInfo {
-    FieldInfo { key, label, unit }
-}
-
-/// Numeric fields a user can put in the Quick View. Keys follow the legacy `CurrentState` names.
-pub const FIELDS: &[FieldInfo] = &[
-    f("alt", "Altitude (relative)", "m"),
-    f("altasl", "Altitude (MSL)", "m"),
-    f("groundspeed", "Ground speed", "m/s"),
-    f("airspeed", "Air speed", "m/s"),
-    f("verticalspeed", "Vertical speed", "m/s"),
-    f("roll", "Roll", "°"),
-    f("pitch", "Pitch", "°"),
-    f("yaw", "Yaw", "°"),
-    f("heading", "Heading", "°"),
-    f("throttle", "Throttle", "%"),
-    f("battery_voltage", "Battery voltage", "V"),
-    f("battery_current", "Battery current", "A"),
-    f("battery_remaining", "Battery remaining", "%"),
-    f("gpsstatus", "GPS fix type", ""),
-    f("satcount", "Satellites", ""),
-    f("gpshdop", "GPS HDOP", ""),
-    f("wp_dist", "Distance to waypoint", "m"),
-    f("wpno", "Current waypoint", ""),
-    f("nav_bearing", "Nav bearing", "°"),
-    f("nav_roll", "Nav roll", "°"),
-    f("nav_pitch", "Nav pitch", "°"),
-    f("alt_error", "Altitude error", "m"),
-    f("xtrack_error", "Cross-track error", "m"),
-    f("dist_to_home", "Distance to home", "m"),
-    f("vibex", "Vibration X", "m/s²"),
-    f("vibey", "Vibration Y", "m/s²"),
-    f("vibez", "Vibration Z", "m/s²"),
-    f("ch1in", "RC input 1", "µs"),
-    f("ch2in", "RC input 2", "µs"),
-    f("ch3in", "RC input 3", "µs"),
-    f("ch4in", "RC input 4", "µs"),
-    f("ch5in", "RC input 5", "µs"),
-    f("ch6in", "RC input 6", "µs"),
-    f("ch7in", "RC input 7", "µs"),
-    f("ch8in", "RC input 8", "µs"),
-    f("ch1out", "Servo output 1", "µs"),
-    f("ch2out", "Servo output 2", "µs"),
-    f("ch3out", "Servo output 3", "µs"),
-    f("ch4out", "Servo output 4", "µs"),
-    f("ch5out", "Servo output 5", "µs"),
-    f("ch6out", "Servo output 6", "µs"),
-    f("ch7out", "Servo output 7", "µs"),
-    f("ch8out", "Servo output 8", "µs"),
-];
-
-const CH_IN: [&str; 8] = [
-    "ch1in", "ch2in", "ch3in", "ch4in", "ch5in", "ch6in", "ch7in", "ch8in",
-];
-const CH_OUT: [&str; 8] = [
-    "ch1out", "ch2out", "ch3out", "ch4out", "ch5out", "ch6out", "ch7out", "ch8out",
-];
+pub use fields::{FieldInfo, FIELDS};
 
 const SAFETY_ARMED: u8 = 128;
 
@@ -113,6 +52,31 @@ pub fn is_vehicle_heartbeat(h: &control_station_mavlink::dialect::HEARTBEAT_DATA
     h.autopilot != MavAutopilot::MAV_AUTOPILOT_INVALID && !is_peripheral_type(h.mavtype as u8)
 }
 
+/// MAV_COMP_ID_MISSIONPLANNER: ground stations, never a target.
+const GCS_COMPONENT: u8 = 190;
+
+/// True when a HEARTBEAT comes from something the user can target: an autopilot or any other
+/// component (gimbal, camera, companion computer...), but not a ground station.
+pub fn is_component_heartbeat(
+    h: &control_station_mavlink::dialect::HEARTBEAT_DATA,
+    component_id: u8,
+) -> bool {
+    h.mavtype != MavType::MAV_TYPE_GCS && component_id != GCS_COMPONENT
+}
+
+/// A STATUSTEXT as an event, tagged with the component that sent it.
+pub fn status_text(id: VehicleId, t: &STATUSTEXT_DATA, unix_ms: u64) -> StatusText {
+    let bytes: &[u8] = &*t.text;
+    let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
+    StatusText {
+        time_ms: unix_ms,
+        severity: t.severity as u8,
+        text: String::from_utf8_lossy(&bytes[..end]).into_owned(),
+        system_id: id.system_id,
+        component_id: id.component_id,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VehicleState {
     pub id: VehicleId,
@@ -123,6 +87,13 @@ pub struct VehicleState {
     pub position: Option<Position>,
     pub home: Option<Position>,
     pub last_heartbeat: Option<Instant>,
+    /// Whether the heartbeats come from an autopilot (flight modes, arming, streams) rather
+    /// than another component such as a gimbal or a companion computer.
+    pub autopilot: bool,
+    /// MAV_TYPE of the last heartbeat.
+    pub mav_type: MavType,
+    /// Last VFR_HUD, for the time-in-air and distance-traveled accumulators.
+    last_flight_tick: Option<Instant>,
     fields: BTreeMap<&'static str, f64>,
 }
 
@@ -137,6 +108,9 @@ impl VehicleState {
             position: None,
             home: None,
             last_heartbeat: None,
+            autopilot: false,
+            mav_type: MavType::MAV_TYPE_GENERIC,
+            last_flight_tick: None,
             fields: BTreeMap::new(),
         }
     }
@@ -145,8 +119,18 @@ impl VehicleState {
         &self.fields
     }
 
+    /// Name for the vehicle selector, like the legacy `MAV_TYPE` label: `QUADROTOR`, `GIMBAL`.
+    pub fn component_name(&self) -> String {
+        format!("{:?}", self.mav_type)
+            .trim_start_matches("MAV_TYPE_")
+            .replace('_', " ")
+    }
+
     pub fn mode(&self) -> Option<String> {
         self.last_heartbeat?;
+        if !self.autopilot {
+            return None;
+        }
         Some(
             self.vehicle_type
                 .mode_name(self.custom_mode)
@@ -169,7 +153,12 @@ impl VehicleState {
     ) -> Option<StatusText> {
         match message {
             MavMessage::HEARTBEAT(h) => {
+                if is_component_heartbeat(h, self.id.component_id) {
+                    self.mav_type = h.mavtype;
+                    self.last_heartbeat = Some(now);
+                }
                 if is_vehicle_heartbeat(h) {
+                    self.autopilot = true;
                     self.vehicle_type = VehicleType::from_mav_type(h.mavtype as u8);
                     self.base_mode = h.base_mode.bits();
                     self.armed = h
@@ -178,12 +167,8 @@ impl VehicleState {
                         || self.base_mode & SAFETY_ARMED != 0;
                     self.custom_mode = h.custom_mode;
                     self.last_heartbeat = Some(now);
+                    self.set("armed", if self.armed { 1.0 } else { 0.0 });
                 }
-            }
-            MavMessage::ATTITUDE(a) => {
-                self.set("roll", f64::from(a.roll).to_degrees());
-                self.set("pitch", f64::from(a.pitch).to_degrees());
-                self.set("yaw", f64::from(a.yaw).to_degrees().rem_euclid(360.0));
             }
             MavMessage::GLOBAL_POSITION_INT(p) => {
                 if p.lat != 0 || p.lon != 0 {
@@ -201,42 +186,8 @@ impl VehicleState {
                 if p.hdg != u16::MAX {
                     self.set("heading", f64::from(p.hdg) / 100.0);
                 }
+                self.decode_fields(message, now);
             }
-            MavMessage::GPS_RAW_INT(g) => {
-                self.set("gpsstatus", f64::from(g.fix_type as u8));
-                if g.satellites_visible != u8::MAX {
-                    self.set("satcount", f64::from(g.satellites_visible));
-                }
-                if g.eph != u16::MAX {
-                    self.set("gpshdop", f64::from(g.eph) / 100.0);
-                }
-            }
-            MavMessage::VFR_HUD(v) => {
-                self.set("airspeed", f64::from(v.airspeed));
-                self.set("groundspeed", f64::from(v.groundspeed));
-                self.set("throttle", f64::from(v.throttle));
-                self.set("heading", f64::from(v.heading));
-            }
-            MavMessage::SYS_STATUS(s) => {
-                if s.voltage_battery != u16::MAX {
-                    self.set("battery_voltage", f64::from(s.voltage_battery) / 1000.0);
-                }
-                if s.current_battery >= 0 {
-                    self.set("battery_current", f64::from(s.current_battery) / 100.0);
-                }
-                if s.battery_remaining >= 0 {
-                    self.set("battery_remaining", f64::from(s.battery_remaining));
-                }
-            }
-            MavMessage::NAV_CONTROLLER_OUTPUT(n) => {
-                self.set("wp_dist", f64::from(n.wp_dist));
-                self.set("nav_bearing", f64::from(n.nav_bearing));
-                self.set("nav_roll", f64::from(n.nav_roll));
-                self.set("nav_pitch", f64::from(n.nav_pitch));
-                self.set("alt_error", f64::from(n.alt_error));
-                self.set("xtrack_error", f64::from(n.xtrack_error));
-            }
-            MavMessage::MISSION_CURRENT(m) => self.set("wpno", f64::from(m.seq)),
             MavMessage::HOME_POSITION(h) => {
                 self.home = Some(Position {
                     lat: f64::from(h.latitude) / 1e7,
@@ -245,55 +196,8 @@ impl VehicleState {
                 });
                 self.update_home_distance();
             }
-            MavMessage::VIBRATION(v) => {
-                self.set("vibex", f64::from(v.vibration_x));
-                self.set("vibey", f64::from(v.vibration_y));
-                self.set("vibez", f64::from(v.vibration_z));
-            }
-            MavMessage::RC_CHANNELS(r) => {
-                let raw = [
-                    r.chan1_raw,
-                    r.chan2_raw,
-                    r.chan3_raw,
-                    r.chan4_raw,
-                    r.chan5_raw,
-                    r.chan6_raw,
-                    r.chan7_raw,
-                    r.chan8_raw,
-                ];
-                for (key, value) in CH_IN.iter().zip(raw) {
-                    if value != u16::MAX {
-                        self.set(key, f64::from(value));
-                    }
-                }
-            }
-            MavMessage::SERVO_OUTPUT_RAW(s) => {
-                let raw = [
-                    s.servo1_raw,
-                    s.servo2_raw,
-                    s.servo3_raw,
-                    s.servo4_raw,
-                    s.servo5_raw,
-                    s.servo6_raw,
-                    s.servo7_raw,
-                    s.servo8_raw,
-                ];
-                for (key, value) in CH_OUT.iter().zip(raw) {
-                    self.set(key, f64::from(value));
-                }
-            }
-            MavMessage::STATUSTEXT(t) => {
-                let bytes: &[u8] = &*t.text;
-                let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
-                return Some(StatusText {
-                    time_ms: unix_ms,
-                    severity: t.severity as u8,
-                    text: String::from_utf8_lossy(&bytes[..end]).into_owned(),
-                    system_id: self.id.system_id,
-                    component_id: self.id.component_id,
-                });
-            }
-            _ => {}
+            MavMessage::STATUSTEXT(t) => return Some(status_text(self.id, t, unix_ms)),
+            other => self.decode_fields(other, now),
         }
         None
     }
@@ -374,6 +278,53 @@ mod tests {
     }
 
     #[test]
+    fn peripheral_is_a_component_without_flight_modes() {
+        let mut v = VehicleState::new(VehicleId {
+            system_id: 1,
+            component_id: 154,
+        });
+        v.apply(
+            &heartbeat(
+                MavType::MAV_TYPE_GIMBAL,
+                MavAutopilot::MAV_AUTOPILOT_INVALID,
+                false,
+                3,
+            ),
+            Instant::now(),
+            0,
+        );
+        assert!(v.is_alive(Instant::now(), Duration::from_secs(5)));
+        assert!(!v.autopilot);
+        assert_eq!(v.mode(), None);
+        assert_eq!(v.component_name(), "GIMBAL");
+    }
+
+    #[test]
+    fn gcs_heartbeats_are_not_components() {
+        let gcs = heartbeat(
+            MavType::MAV_TYPE_GCS,
+            MavAutopilot::MAV_AUTOPILOT_INVALID,
+            false,
+            0,
+        );
+        let MavMessage::HEARTBEAT(h) = &gcs else {
+            unreachable!()
+        };
+        assert!(!is_component_heartbeat(h, 1));
+        let quad = heartbeat(
+            MavType::MAV_TYPE_QUADROTOR,
+            MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
+            false,
+            0,
+        );
+        let MavMessage::HEARTBEAT(h) = &quad else {
+            unreachable!()
+        };
+        assert!(is_component_heartbeat(h, 1));
+        assert!(!is_component_heartbeat(h, 190));
+    }
+
+    #[test]
     fn gcs_and_peripheral_heartbeats_are_not_vehicles() {
         let gcs = heartbeat(
             MavType::MAV_TYPE_GCS,
@@ -394,7 +345,8 @@ mod tests {
             assert!(!is_vehicle_heartbeat(h));
             let mut v = vehicle();
             v.apply(&hb, Instant::now(), 0);
-            assert!(v.last_heartbeat.is_none());
+            assert!(!v.autopilot);
+            assert_eq!(v.vehicle_type, VehicleType::Unknown);
         }
     }
 
