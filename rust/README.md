@@ -1,6 +1,6 @@
 # Rust Control Station
 
-This workspace is the incremental Rust successor to the legacy Mission Planner application. The first milestone supports ArduPilot Copter and Plane telemetry, parameter workflows, guided calibration, and offline-capable maps on Windows and Linux.
+This workspace is the Rust successor to the legacy Mission Planner application. It supports ArduPilot vehicles over MAVLink (serial, TCP, UDP, WebSocket) with Flight Data, parameters, calibration, Extended Tuning, a MAVLink Inspector, mission planning, MAVFTP, firmware flashing, Motor Test and DroneCAN tools, on Windows and Linux. The project status and what is verified on hardware are in the root [README](../README.md) and [HANDOFF.md](../HANDOFF.md).
 
 ## Development
 
