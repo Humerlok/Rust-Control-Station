@@ -355,3 +355,112 @@ async fn replay_of_the_sample_log_produces_a_vehicle() {
     manager.disconnect();
     assert!(!manager.telemetry().connected);
 }
+
+fn component_heartbeat(mavtype: MavType, autopilot: MavAutopilot) -> MavMessage {
+    MavMessage::HEARTBEAT(HEARTBEAT_DATA {
+        mavtype,
+        autopilot,
+        system_status: MavState::MAV_STATE_ACTIVE,
+        mavlink_version: 3,
+        ..HEARTBEAT_DATA::default()
+    })
+}
+
+async fn send_from(
+    socket: &UdpSocket,
+    port: u16,
+    system_id: u8,
+    component_id: u8,
+    message: &MavMessage,
+) {
+    let frame = encode(
+        MavHeader {
+            system_id: u32::from(system_id),
+            component_id,
+            sequence: 0,
+        },
+        message,
+        MavlinkVersion::V2,
+    );
+    socket.send_to(&frame, ("127.0.0.1", port)).await.unwrap();
+}
+
+fn selected(manager: &LinkManager) -> Option<(u8, u8)> {
+    manager
+        .telemetry()
+        .vehicle
+        .map(|v| (v.system_id, v.component_id))
+}
+
+#[tokio::test]
+async fn components_are_listed_and_autopilots_win_the_automatic_selection() {
+    let manager = LinkManager::new();
+    manager
+        .connect(ConnectionConfig::Udp { port: 0 })
+        .await
+        .unwrap();
+    let port = manager.local_port().unwrap();
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let gimbal = component_heartbeat(
+        MavType::MAV_TYPE_GIMBAL,
+        MavAutopilot::MAV_AUTOPILOT_INVALID,
+    );
+    let quad = component_heartbeat(
+        MavType::MAV_TYPE_QUADROTOR,
+        MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
+    );
+    let gcs = component_heartbeat(MavType::MAV_TYPE_GCS, MavAutopilot::MAV_AUTOPILOT_INVALID);
+
+    // A gimbal alone is selected, for lack of anything better; another GCS is ignored.
+    send_from(&socket, port, 1, 154, &gimbal).await;
+    send_from(&socket, port, 254, 190, &gcs).await;
+    wait_until("gimbal", || selected(&manager) == Some((1, 154))).await;
+    assert!(!manager.telemetry().connected || manager.telemetry().mode.is_none());
+
+    // The autopilot that shows up later takes over the automatic selection.
+    send_from(&socket, port, 1, 1, &quad).await;
+    wait_until("autopilot", || selected(&manager) == Some((1, 1))).await;
+
+    // A second vehicle is listed but does not steal the selection.
+    send_from(&socket, port, 2, 1, &quad).await;
+    wait_until("three entries", || manager.telemetry().vehicles.len() == 3).await;
+    assert_eq!(selected(&manager), Some((1, 1)));
+    let vehicles = manager.telemetry().vehicles;
+    let gimbal_entry = vehicles.iter().find(|v| v.component_id == 154).unwrap();
+    assert_eq!(gimbal_entry.component, "GIMBAL");
+    assert!(!gimbal_entry.autopilot);
+    assert!(vehicles.iter().filter(|v| v.autopilot).count() == 2);
+
+    // A manual choice sticks, even to a component that is not an autopilot.
+    manager.select_vehicle(control_station_vehicle_state::VehicleId {
+        system_id: 1,
+        component_id: 154,
+    });
+    send_from(&socket, port, 3, 1, &quad).await;
+    wait_until("four entries", || manager.telemetry().vehicles.len() == 4).await;
+    assert_eq!(selected(&manager), Some((1, 154)));
+}
+
+#[tokio::test]
+async fn status_text_from_a_component_without_heartbeat_is_reported() {
+    let manager = LinkManager::new();
+    let mut events = manager.subscribe();
+    manager
+        .connect(ConnectionConfig::Udp { port: 0 })
+        .await
+        .unwrap();
+    let port = manager.local_port().unwrap();
+    let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    send_from(&socket, port, 1, 191, &statustext("companion online")).await;
+    let text = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Ok(LinkEvent::StatusText(text)) = events.recv().await {
+                return text;
+            }
+        }
+    })
+    .await
+    .expect("status text event");
+    assert_eq!(text.text, "companion online");
+    assert_eq!((text.system_id, text.component_id), (1, 191));
+}

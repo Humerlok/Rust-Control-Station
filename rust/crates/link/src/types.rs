@@ -85,6 +85,10 @@ pub struct VehicleSummary {
     pub system_id: u8,
     pub component_id: u8,
     pub vehicle_type: String,
+    /// Selector label: the MAV_TYPE name, e.g. `QUADROTOR`, `GIMBAL`.
+    pub component: String,
+    /// False for gimbals, cameras, companion computers and other non-autopilot components.
+    pub autopilot: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -244,6 +248,8 @@ mod tests {
                 system_id: 1,
                 component_id: 1,
                 vehicle_type: "Copter".into(),
+                component: "QUADROTOR".into(),
+                autopilot: true,
             }],
         };
         let value = serde_json::to_value(snapshot).unwrap();
@@ -254,6 +260,8 @@ mod tests {
         assert_eq!(value["position"]["altM"], 10.0);
         assert_eq!(value["home"], serde_json::Value::Null);
         assert_eq!(value["vehicles"][0]["systemId"], 1);
+        assert_eq!(value["vehicles"][0]["component"], "QUADROTOR");
+        assert_eq!(value["vehicles"][0]["autopilot"], true);
     }
 
     #[test]

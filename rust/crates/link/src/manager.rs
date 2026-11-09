@@ -11,7 +11,9 @@ use control_station_mavlink::{
     GCS_SYSTEM_ID,
 };
 use control_station_transport::{Connection, Endpoint, LinkReader, LinkWriter};
-use control_station_vehicle_state::{is_vehicle_heartbeat, VehicleId, VehicleState, FIELDS};
+use control_station_vehicle_state::{
+    is_component_heartbeat, status_text, VehicleId, VehicleState, FIELDS,
+};
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinHandle,
@@ -94,6 +96,8 @@ struct Inner {
     rates: Rates,
     vehicles: BTreeMap<VehicleId, VehicleState>,
     selected: Option<VehicleId>,
+    /// The user picked `selected` by hand: automatic selection must not change it.
+    user_selected: bool,
     streams_requested: HashSet<VehicleId>,
     sequence: u8,
     session: Option<Session>,
@@ -142,6 +146,7 @@ impl Inner {
             },
             vehicles: BTreeMap::new(),
             selected: None,
+            user_selected: false,
             streams_requested: HashSet::new(),
             sequence: 0,
             session: None,
@@ -159,6 +164,7 @@ impl Inner {
         };
         self.vehicles.clear();
         self.selected = None;
+        self.user_selected = false;
         self.streams_requested.clear();
         self.dirty = true;
     }
@@ -214,6 +220,8 @@ impl Inner {
                     system_id: v.id.system_id,
                     component_id: v.id.component_id,
                     vehicle_type: v.vehicle_type.as_str().to_owned(),
+                    component: v.component_name(),
+                    autopilot: v.autopilot,
                 })
                 .collect(),
         }
@@ -266,15 +274,16 @@ impl Inner {
                     result: ack.result as u8,
                 });
             }
-            MavMessage::HEARTBEAT(h) if is_vehicle_heartbeat(h) => {
+            MavMessage::HEARTBEAT(h)
+                if id.system_id != GCS_SYSTEM_ID && is_component_heartbeat(h, id.component_id) =>
+            {
                 let vehicle = self
                     .vehicles
                     .entry(id)
                     .or_insert_with(|| VehicleState::new(id));
                 vehicle.apply(&packet.message, now, unix_ms());
-                if self.selected.is_none() {
-                    self.selected = Some(id);
-                }
+                let autopilot = vehicle.autopilot;
+                self.auto_select(id, autopilot);
                 self.dirty = true;
             }
             message => {
@@ -283,8 +292,31 @@ impl Inner {
                         let _ = events.send(LinkEvent::StatusText(text));
                     }
                     self.dirty = true;
+                } else if let MavMessage::STATUSTEXT(t) = message {
+                    // Components that never sent a heartbeat still get their messages shown.
+                    if id.system_id != GCS_SYSTEM_ID {
+                        let _ = events.send(LinkEvent::StatusText(status_text(id, t, unix_ms())));
+                    }
                 }
             }
+        }
+    }
+
+    /// Picks the first autopilot seen; a component that is not an autopilot is only picked
+    /// while there is nothing better, and gives way to an autopilot that shows up later unless
+    /// the user chose it.
+    fn auto_select(&mut self, id: VehicleId, autopilot: bool) {
+        let current_is_autopilot = self
+            .selected
+            .and_then(|s| self.vehicles.get(&s))
+            .is_some_and(|v| v.autopilot);
+        let replace = match self.selected {
+            None => true,
+            Some(current) if current == id => false,
+            Some(_) => autopilot && !current_is_autopilot && !self.user_selected,
+        };
+        if replace {
+            self.selected = Some(id);
         }
     }
 
@@ -370,6 +402,7 @@ impl LinkManager {
         let mut inner = self.lock();
         if inner.vehicles.contains_key(&id) {
             inner.selected = Some(id);
+            inner.user_selected = true;
             inner.dirty = true;
         }
     }
@@ -720,7 +753,9 @@ async fn ticker_task(shared: Arc<Shared>, generation: u64) {
         let mut stream_requests = Vec::new();
         let ids: Vec<VehicleId> = inner.vehicles.keys().copied().collect();
         for id in ids {
-            let alive = inner.vehicles[&id].is_alive(now, timeout);
+            // Only autopilots get stream requests; gimbals and companions send what they send.
+            let vehicle = &inner.vehicles[&id];
+            let alive = vehicle.autopilot && vehicle.is_alive(now, timeout);
             let requested = inner.streams_requested.contains(&id);
             if alive && !requested {
                 inner.streams_requested.insert(id);
