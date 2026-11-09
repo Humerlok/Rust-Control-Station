@@ -8,6 +8,7 @@ mod inspector_cmds;
 mod mission_cmds;
 mod motor_cmds;
 mod params_cmds;
+mod save_dialog;
 
 use std::sync::Arc;
 
@@ -162,6 +163,7 @@ fn main() {
     let motor_link = link.clone();
     let dronecan_link = link.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState { link })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -400,7 +402,7 @@ fn main() {
             params_cmds::param_set,
             params_cmds::params_metadata,
             params_cmds::params_parse_file,
-            params_cmds::params_format_file,
+            params_cmds::params_save_file,
             calibration_cmds::calibration_start,
             calibration_cmds::calibration_accel_confirm,
             calibration_cmds::calibration_compass_accept,
@@ -440,9 +442,9 @@ fn main() {
             mission_cmds::mission_clear,
             mission_cmds::mission_commands,
             mission_cmds::mission_parse_file,
-            mission_cmds::mission_format_file,
+            mission_cmds::mission_save_file,
             ftp_cmds::ftp_list,
-            ftp_cmds::ftp_download,
+            ftp_cmds::ftp_download_save,
             ftp_cmds::ftp_upload,
             ftp_cmds::ftp_remove,
             ftp_cmds::ftp_mkdir,

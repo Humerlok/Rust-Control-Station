@@ -64,9 +64,11 @@ export function App() {
   const label = NAV.flatMap((g) => g.items).find((i) => i.id === view)?.label ?? "";
   const connected = link.state === "connected" && telemetry.connected;
 
+  const selectedKey = telemetry.vehicle ? `${telemetry.vehicle.systemId}:${telemetry.vehicle.componentId}` : null;
+
   useEffect(() => {
-    paramStore.setConnection(link.state === "connected", telemetry.connected, telemetry.vehicleType);
-  }, [link.state, telemetry.connected, telemetry.vehicleType]);
+    paramStore.setConnection(link.state === "connected", telemetry.connected, telemetry.vehicleType, selectedKey);
+  }, [link.state, telemetry.connected, telemetry.vehicleType, selectedKey]);
 
   return (
     <div className="shell">
@@ -75,7 +77,7 @@ export function App() {
           <span>ARDUPILOT</span>
           <strong>Control Station</strong>
         </div>
-        <ConnectBar link={link} telemetry={telemetry} />
+        <ConnectBar link={link} telemetry={telemetry} notify={notify} />
         <div className="spacer" />
         {isMockBackend && <span className="badge warn" title="No Tauri backend: showing simulated data">SIMULATED</span>}
         <RebootButton connected={connected} armed={telemetry.armed} notify={notify} />
@@ -102,7 +104,7 @@ export function App() {
           <FlightPlan telemetry={telemetry} notify={notify} />
         </div>
         <div className="view" hidden={view !== "mavftp"}>
-          <MavFtp connected={connected} notify={notify} />
+          <MavFtp connected={connected} active={view === "mavftp"} notify={notify} />
         </div>
         <div className="view" hidden={view !== "firmware"}>
           <Firmware connected={connected} notify={notify} />

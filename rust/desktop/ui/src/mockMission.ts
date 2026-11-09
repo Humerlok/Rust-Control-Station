@@ -1,4 +1,5 @@
 import type { Backend, Unlisten } from "./api";
+import { browserDownload } from "./mockDownload";
 import type { MissionCommandInfo, MissionItem, MissionKind, MissionProgress } from "./types";
 
 type MissionMock = Pick<
@@ -8,7 +9,7 @@ type MissionMock = Pick<
   | "missionClear"
   | "missionCommands"
   | "missionParseFile"
-  | "missionFormatFile"
+  | "missionSaveFile"
   | "onMissionProgress"
 >;
 
@@ -160,7 +161,7 @@ export function createMissionMock(): MissionMock {
         return Promise.reject(error instanceof Error ? error.message : String(error));
       }
     },
-    missionFormatFile: async (items) => formatWaypoints(items),
+    missionSaveFile: async (defaultName, items) => browserDownload(defaultName, formatWaypoints(items), "text/plain"),
     onMissionProgress: async (cb): Promise<Unlisten> => {
       listeners.add(cb);
       return () => listeners.delete(cb);

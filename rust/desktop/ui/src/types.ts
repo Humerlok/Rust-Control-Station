@@ -1,5 +1,6 @@
 export type VehicleRef = { systemId: number; componentId: number };
-export type VehicleSummary = VehicleRef & { vehicleType: string };
+/** One heartbeat source on the link; `component` is the MAV_TYPE label (`QUADROTOR`, `GIMBAL`). */
+export type VehicleSummary = VehicleRef & { vehicleType: string; component: string; autopilot: boolean };
 export type GeoPoint = { lat: number; lon: number; altM: number };
 
 export type Telemetry = {
@@ -42,7 +43,7 @@ export type StatusText = {
 };
 
 export type SerialPortInfo = { name: string; description: string; vid?: number | null; pid?: number | null };
-export type FieldInfo = { key: string; label: string; unit: string };
+export type FieldInfo = { key: string; label: string; unit: string; group: string };
 export type ActionInfo = { name: string; label: string; confirm: boolean; danger: boolean };
 
 export type ConnectionConfig =

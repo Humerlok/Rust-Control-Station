@@ -13,17 +13,6 @@ const CONFIRM_ABOVE = 20;
 
 type Props = { notify: (text: string, ok: boolean) => void };
 
-function download(filename: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 export function Parameters({ notify }: Props) {
   const p = useParams();
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -70,9 +59,8 @@ export function Parameters({ notify }: Props) {
 
   async function save() {
     try {
-      const text = await api.paramsFormatFile();
-      download(`${p.vehicleType.toLowerCase()}.param`, text);
-      setInfo(`Saved ${text.split("\n").filter((l) => l.trim()).length} parameters.`);
+      const path = await api.paramsSaveFile(`${p.vehicleType.toLowerCase()}.param`);
+      if (path) setInfo(`Saved parameters to ${path}`);
     } catch (error) {
       setInfo(`Save failed: ${String(error)}`);
     }

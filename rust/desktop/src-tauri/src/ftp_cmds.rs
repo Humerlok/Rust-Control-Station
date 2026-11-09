@@ -2,18 +2,30 @@
 //! the IPC boundary as base64 so large files are not serialized as JSON number arrays.
 use base64::{engine::general_purpose::STANDARD, Engine};
 use control_station_link::{DirEntry, FtpService};
-use tauri::State;
+use tauri::{AppHandle, State};
+
+use crate::save_dialog::{ask_save_path, write_file};
 
 #[tauri::command]
 pub async fn ftp_list(path: String, ftp: State<'_, FtpService>) -> Result<Vec<DirEntry>, String> {
     ftp.list(&path).await.map_err(|e| e.to_string())
 }
 
-/// Downloads a file; the result is its bytes, base64 encoded.
+/// Asks where to save, then downloads `path` straight to that file. Resolves to the saved
+/// path, or `None` when the user cancelled (nothing is downloaded then).
 #[tauri::command]
-pub async fn ftp_download(path: String, ftp: State<'_, FtpService>) -> Result<String, String> {
+pub async fn ftp_download_save(
+    path: String,
+    app: AppHandle,
+    ftp: State<'_, FtpService>,
+) -> Result<Option<String>, String> {
+    let name = path.rsplit('/').next().unwrap_or_default();
+    let Some(dest) = ask_save_path(&app, "Save vehicle file", name, None).await? else {
+        return Ok(None);
+    };
     let bytes = ftp.read(&path).await.map_err(|e| e.to_string())?;
-    Ok(STANDARD.encode(bytes))
+    write_file(&dest, &bytes)?;
+    Ok(Some(dest.display().to_string()))
 }
 
 /// Uploads base64 `data` to `path`, replacing it; `verify` compares the vehicle's CRC32.

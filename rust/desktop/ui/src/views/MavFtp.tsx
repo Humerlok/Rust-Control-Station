@@ -4,9 +4,25 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { FtpEntry, FtpProgress } from "../types";
 import "../mavftp.css";
 
-type Props = { connected: boolean; notify: (text: string, ok: boolean) => void };
+type Props = { connected: boolean; active: boolean; notify: (text: string, ok: boolean) => void };
 
-const PLACES = ["/", "/APM", "/APM/scripts", "/APM/logs", "/APM/lua"];
+const byName = (a: FtpEntry, b: FtpEntry) => a.name.localeCompare(b.name, undefined, { numeric: true });
+const sortEntries = (list: FtpEntry[]) => list.sort((a, b) => Number(b.isDir) - Number(a.isDir) || byName(a, b));
+
+/**
+ * Builds the Places shortcuts from what the vehicle actually has: `/`, its APM directory and
+ * the folders inside it (spelled as the vehicle spells them, e.g. `LOGS` on ChibiOS) and the
+ * virtual `@SYS`/`@ROMFS`/... trees when the root listing reports them.
+ */
+function placesFrom(root: FtpEntry[], apmDir: string | null, apm: FtpEntry[]): string[] {
+  const places = ["/"];
+  if (apmDir) {
+    places.push(apmDir);
+    for (const entry of apm.filter((e) => e.isDir).sort(byName)) places.push(join(apmDir, entry.name));
+  }
+  for (const entry of root.filter((e) => e.isDir && e.name.startsWith("@")).sort(byName)) places.push(join("/", entry.name));
+  return places;
+}
 
 const join = (dir: string, name: string) => (dir === "/" ? `/${name}` : `${dir.replace(/\/+$/, "")}/${name}`);
 const parentOf = (dir: string) => dir.replace(/\/+$/, "").slice(0, dir.replace(/\/+$/, "").lastIndexOf("/")) || "/";
@@ -30,25 +46,13 @@ function toBase64(buffer: ArrayBuffer): string {
   return btoa(text);
 }
 
-function save(filename: string, base64: string) {
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 type Pending =
   | { kind: "delete"; entry: FtpEntry }
   | { kind: "overwrite"; name: string; data: string }
   | { kind: "rename"; entry: FtpEntry }
   | { kind: "mkdir" };
 
-export function MavFtp({ connected, notify }: Props) {
+export function MavFtp({ connected, active: shown, notify }: Props) {
   const [dir, setDir] = useState("/APM");
   const [pathText, setPathText] = useState("/APM");
   const [entries, setEntries] = useState<FtpEntry[]>([]);
@@ -60,6 +64,8 @@ export function MavFtp({ connected, notify }: Props) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [nameValue, setNameValue] = useState("");
+  const [places, setPlaces] = useState<string[]>(["/"]);
+  const discovered = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const token = useRef(0);
 
@@ -79,15 +85,14 @@ export function MavFtp({ connected, notify }: Props) {
   const selectedEntry = useMemo(() => entries.find((e) => e.name === selected) ?? null, [entries, selected]);
 
   const load = useCallback(
-    async (target: string) => {
+    async (target: string, prefetched?: FtpEntry[]) => {
       const mine = ++token.current;
       setBusy(true);
       setError(null);
       try {
-        const list = await api.ftpList(target);
+        const list = prefetched ? [...prefetched] : await api.ftpList(target);
         if (mine !== token.current) return;
-        list.sort((a, b) => Number(b.isDir) - Number(a.isDir) || a.name.localeCompare(b.name, undefined, { numeric: true }));
-        setEntries(list);
+        setEntries(sortEntries(list));
         setDir(target);
         setPathText(target);
         setSelected(null);
@@ -100,14 +105,40 @@ export function MavFtp({ connected, notify }: Props) {
     [],
   );
 
-  // Load once when the vehicle becomes available; the user drives it from there.
+  // The first time the screen is shown on a connection, list `/` and the APM directory (two
+  // requests only: the parameter download may be using MAVFTP at the same time) to build the
+  // Places, then open the APM directory. The user drives it from there.
   useEffect(() => {
-    if (connected) void load("/APM");
-    else {
+    if (!connected) {
+      discovered.current = false;
+      setPlaces(["/"]);
       setEntries([]);
       setError(null);
+      return;
     }
-  }, [connected, load]);
+    if (!shown || discovered.current) return;
+    discovered.current = true;
+    void (async () => {
+      setBusy(true);
+      let root: FtpEntry[] = [];
+      try {
+        root = await api.ftpList("/");
+      } catch {
+        // Some firmwares refuse to list the root; the APM directory is still worth trying.
+      }
+      const apmName = root.find((e) => e.isDir && e.name.toUpperCase() === "APM")?.name ?? "APM";
+      let apmDir: string | null = null;
+      let apm: FtpEntry[] = [];
+      try {
+        apm = await api.ftpList(`/${apmName}`);
+        apmDir = `/${apmName}`;
+      } catch {
+        // No APM directory (no SD card): browse from the root.
+      }
+      setPlaces(placesFrom(root, apmDir, apm));
+      await load(apmDir ?? "/", apmDir ? apm : root.length ? root : undefined);
+    })();
+  }, [connected, shown, load]);
 
   async function run(label: string, action: () => Promise<unknown>, refresh = true) {
     setBusy(true);
@@ -124,10 +155,25 @@ export function MavFtp({ connected, notify }: Props) {
     }
   }
 
-  const download = () =>
-    selectedEntry &&
-    !selectedEntry.isDir &&
-    run(`Downloaded ${selectedEntry.name}`, async () => save(selectedEntry.name, await api.ftpDownload(join(dir, selectedEntry.name))), false);
+  async function download() {
+    if (!selectedEntry || selectedEntry.isDir) return;
+    const name = selectedEntry.name;
+    setBusy(true);
+    setError(null);
+    try {
+      // The backend asks where to save first; null means the user cancelled the dialog.
+      const saved = await api.ftpDownloadSave(join(dir, name));
+      if (saved) {
+        setInfo(`Saved ${name} to ${saved}`);
+        notify(`Downloaded ${name}`, true);
+      }
+    } catch (e) {
+      setError(String(e));
+      notify(String(e), false);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const checksum = () =>
     selectedEntry &&
@@ -250,7 +296,7 @@ export function MavFtp({ connected, notify }: Props) {
       <div className="ftp-body">
         <div className="ftp-places" aria-label="Places">
           <div className="group">Places</div>
-          {PLACES.map((place) => (
+          {places.map((place) => (
             <button key={place} className={dir === place ? "active" : ""} disabled={disabled} onClick={() => void load(place)}>
               {place}
             </button>

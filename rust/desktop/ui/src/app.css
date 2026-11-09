@@ -66,6 +66,19 @@
 
 .hud { position: absolute; left: 10px; bottom: 28px; width: 210px; z-index: 500; padding: 8px; background: rgba(46, 52, 64, 0.8); border: 1px solid var(--border); border-radius: var(--radius); pointer-events: none; }
 .hud-badges { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
+.hud-type { font-size: 11px; align-self: center; }
+.hud-mode { margin-top: 4px; padding: 2px 6px; text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-strong); border-radius: var(--radius); transition: background-color 0.3s, color 0.3s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-mode.changed { color: #fff; background: var(--nord11); }
+.message-banner { position: absolute; left: 236px; right: 12px; bottom: 28px; z-index: 600; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+.banner-msg { pointer-events: auto; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: var(--radius); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.25); }
+.banner-msg.critical { background: var(--nord11); color: #fff; }
+.banner-msg.error { background: var(--nord12); color: var(--nord0); }
+.banner-msg.warning { background: var(--nord13); color: var(--nord0); }
+.banner-msg.info { background: var(--nord9); color: var(--nord0); }
+.banner-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.banner-count { padding: 0 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); font-size: 12px; }
+.banner-close { padding: 0 6px; min-width: 0; line-height: 1.2; background: transparent; border: none; color: inherit; font-size: 16px; cursor: pointer; }
+.banner-close:hover { background: rgba(0, 0, 0, 0.2); }
 .hud-readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 4px; font-size: 11px; color: var(--text-strong); }
 
 .quick-controls { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
@@ -78,10 +91,11 @@
 .quick-tile strong { font-size: 26px; font-weight: 600; color: var(--text-strong); }
 
 .picker input[type="text"], .picker > input { width: 100%; }
-.picker-list { max-height: 320px; overflow: auto; margin: 8px 0 12px; border: 1px solid var(--border); border-radius: var(--radius); }
+.picker-list { max-height: 420px; overflow: auto; margin: 8px 0 12px; border: 1px solid var(--border); border-radius: var(--radius); }
 .picker-list label { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 5px 8px; cursor: pointer; color: var(--text); }
 .picker-list label:hover { background: var(--panel-raised); }
 .picker-list label.selected { background: var(--panel-raised); color: var(--text-strong); }
+.picker-group-title { position: sticky; top: 0; z-index: 1; padding: 4px 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--nord8); background: var(--panel); border-bottom: 1px solid var(--border); }
 
 .messages { flex: 1; display: flex; flex-direction: column; min-height: 140px; }
 .messages > header button { padding: 2px 8px; }

@@ -14,7 +14,17 @@ export function QuickPicker({ fields, current, onPick, onCancel }: Props) {
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return fields.filter((f) => !q || f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q));
+    const matching = fields.filter(
+      (f) => !q || f.label.toLowerCase().includes(q) || f.key.toLowerCase().includes(q) || f.group.toLowerCase().includes(q),
+    );
+    // Grouped like the legacy picker, groups in the order the backend lists them.
+    const groups = new Map<string, FieldInfo[]>();
+    for (const f of matching) {
+      const list = groups.get(f.group) ?? [];
+      list.push(f);
+      groups.set(f.group, list);
+    }
+    return [...groups];
   }, [fields, query]);
 
   return (
@@ -30,12 +40,17 @@ export function QuickPicker({ fields, current, onPick, onCancel }: Props) {
           onKeyDown={(e) => e.key === "Escape" && onCancel()}
         />
         <div className="picker-list" role="radiogroup">
-          {visible.map((f) => (
-            <label key={f.key} className={selected === f.key ? "selected" : ""} onDoubleClick={() => onPick(f.key)}>
-              <input type="radio" name="quick-field" checked={selected === f.key} onChange={() => setSelected(f.key)} />
-              <span>{f.label}</span>
-              <span className="dim mono">{f.unit}</span>
-            </label>
+          {visible.map(([group, list]) => (
+            <div key={group} className="picker-group">
+              <div className="picker-group-title">{group}</div>
+              {list.map((f) => (
+                <label key={f.key} className={selected === f.key ? "selected" : ""} onDoubleClick={() => onPick(f.key)}>
+                  <input type="radio" name="quick-field" checked={selected === f.key} onChange={() => setSelected(f.key)} />
+                  <span>{f.label}</span>
+                  <span className="dim mono">{f.unit}</span>
+                </label>
+              ))}
+            </div>
           ))}
           {visible.length === 0 && <p className="dim">No matching fields.</p>}
         </div>

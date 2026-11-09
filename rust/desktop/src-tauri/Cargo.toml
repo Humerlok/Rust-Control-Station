@@ -20,3 +20,4 @@ control-station-vehicle-state = { path = "../../crates/vehicle-state" }
 control-station-ardupilot-meta = { path = "../../crates/ardupilot-meta" }
 control-station-params = { path = "../../crates/params" }
 control-station-mission = { path = "../../crates/mission" }
+tauri-plugin-dialog = "2"

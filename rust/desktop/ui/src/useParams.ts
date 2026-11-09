@@ -29,6 +29,10 @@ const FAVORITES_KEY = "params.favorites";
 const listeners = new Set<() => void>();
 let initialized = false;
 let metadataRequested = false;
+/** `sys:comp` of the vehicle the list belongs to, to notice when the user switches vehicles. */
+let vehicleKey: string | null = null;
+/** The selection changed while a download was running: download again once it ends. */
+let switchPending = false;
 
 let state: ParamState = {
   list: [],
@@ -69,7 +73,7 @@ function ensureInit() {
   void api.onParamsProgress((progress) => {
     update({ progress: progress.done ? null : progress });
     // Any finished download (also one started elsewhere) makes the list and metadata current.
-    if (progress.done && !progress.error) {
+    if (progress.done && !progress.error && !switchPending) {
       void loadList()
         .then(() => loadMetadata())
         .catch(() => undefined);
@@ -99,19 +103,51 @@ async function refresh(): Promise<void> {
   update({ refreshing: true, refreshError: null, progress: { received: 0, total: 0, done: false, error: null } });
   try {
     await api.paramsRefresh();
+    // A download for the previously selected vehicle: its list is not wanted any more.
+    if (switchPending) return;
     await loadList();
     void loadMetadata();
   } catch (error) {
-    update({ refreshError: String(error) });
+    if (!switchPending) update({ refreshError: String(error) });
   } finally {
     update({ refreshing: false, progress: null });
+    if (switchPending) {
+      switchPending = false;
+      clearVehicleData();
+      void refresh();
+    }
   }
 }
 
-function setConnection(linkConnected: boolean, vehicleAlive: boolean, vehicleType: string) {
+function clearVehicleData() {
+  metadataRequested = false;
+  update({
+    list: [],
+    byName: new Map(),
+    metadata: {},
+    edits: {},
+    errors: {},
+    progress: null,
+    refreshError: null,
+    rebootRequired: false,
+  });
+}
+
+function setConnection(linkConnected: boolean, vehicleAlive: boolean, vehicleType: string, selected: string | null = null) {
   ensureInit();
   const wasConnected = state.linkConnected;
   update({ vehicleAlive, vehicleType });
+  // Another vehicle/component selected on the same link: its parameters are a different set
+  // (like the legacy planner, download them again).
+  const switched = linkConnected && wasConnected && selected !== null && vehicleKey !== null && selected !== vehicleKey;
+  if (linkConnected && selected !== null) vehicleKey = selected;
+  if (!linkConnected) vehicleKey = null;
+  if (switched) {
+    clearVehicleData();
+    if (state.refreshing) switchPending = true;
+    else void refresh();
+    return;
+  }
   if (linkConnected === wasConnected) return;
   update({ linkConnected });
   if (linkConnected) {
@@ -122,18 +158,9 @@ function setConnection(linkConnected: boolean, vehicleAlive: boolean, vehicleTyp
       .catch(() => undefined);
     void loadMetadata();
   } else {
-    metadataRequested = false;
-    update({
-      list: [],
-      byName: new Map(),
-      metadata: {},
-      edits: {},
-      errors: {},
-      progress: null,
-      refreshing: false,
-      refreshError: null,
-      rebootRequired: false,
-    });
+    switchPending = false;
+    clearVehicleData();
+    update({ refreshing: false });
   }
 }
 

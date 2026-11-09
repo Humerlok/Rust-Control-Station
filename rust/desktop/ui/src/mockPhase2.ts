@@ -1,4 +1,5 @@
 import type { Backend, Unlisten } from "./api";
+import { browserDownload } from "./mockDownload";
 import { initialMetadata, initialParams } from "./mockParams";
 import {
   idleCalibration,
@@ -22,7 +23,7 @@ type Phase2 = Pick<
   | "paramSet"
   | "paramsMetadata"
   | "paramsParseFile"
-  | "paramsFormatFile"
+  | "paramsSaveFile"
   | "calibrationStart"
   | "calibrationAccelConfirm"
   | "calibrationCompassAccept"
@@ -184,11 +185,12 @@ export function createPhase2Mock({ isConnected, isArmed, emitStatus }: Context):
       return result;
     },
 
-    async paramsFormatFile() {
-      return [...table]
+    async paramsSaveFile(defaultName: string) {
+      const text = [...table]
         .sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }))
         .map((e) => `${e.name},${formatNumber(e.value)}`)
         .join("\n");
+      return browserDownload(defaultName, text, "text/plain");
     },
 
     async calibrationStart(kind: CalibrationKind) {

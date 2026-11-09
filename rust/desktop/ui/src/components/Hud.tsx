@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { Telemetry } from "../types";
 
 const PX_PER_DEG = 3;
@@ -73,18 +74,41 @@ function Horizon({ roll, pitch }: { roll: number; pitch: number }) {
 
 const fmt = (value: number | undefined, digits = 0) => (value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(digits));
 
+/** How long the flight mode stays highlighted after it changes (legacy HUD: 2 s in red). */
+const MODE_CHANGE_MS = 2000;
+
+/** True for a short while after `mode` changes, not on the first value seen. */
+function useRecentChange(mode: string | null): boolean {
+  const previous = useRef(mode);
+  const [changed, setChanged] = useState(false);
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = mode;
+    if (before === null || mode === null || before === mode) return;
+    setChanged(true);
+    const timer = window.setTimeout(() => setChanged(false), MODE_CHANGE_MS);
+    return () => window.clearTimeout(timer);
+  }, [mode]);
+  return changed;
+}
+
 export function Hud({ telemetry }: { telemetry: Telemetry }) {
   const f = telemetry.fields;
   const live = telemetry.connected;
+  const mode = live ? telemetry.mode : null;
+  const modeChanged = useRecentChange(mode);
   const heading = normalizeHeading(f.heading ?? f.yaw ?? 0);
   return (
     <div className="hud" aria-label="Heads-up display">
       <div className="hud-badges">
         <span className={`badge ${live ? (telemetry.armed ? "danger" : "ok") : ""}`}>{live ? (telemetry.armed ? "ARMED" : "DISARMED") : "NO LINK"}</span>
-        <span className="badge">{telemetry.mode ?? "—"}</span>
+        <span className="hud-type dim">{live ? telemetry.vehicleType : ""}</span>
       </div>
       <HeadingTape heading={heading} />
       <Horizon roll={f.roll ?? 0} pitch={f.pitch ?? 0} />
+      <div className={`hud-mode${modeChanged ? " changed" : ""}`} aria-label="Flight mode" title="Flight mode">
+        {mode ?? "—"}
+      </div>
       <div className="hud-readouts mono">
         <span>
           HDG {fmt(heading)}° {CARDINALS[Math.round(heading / 45) % 8]}

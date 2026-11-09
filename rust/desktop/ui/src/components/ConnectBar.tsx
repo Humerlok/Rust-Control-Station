@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { loadSetting, saveSetting } from "../storage";
-import type { ConnectionConfig, LinkInfo, SerialPortInfo, Telemetry } from "../types";
+import type { ConnectionConfig, LinkInfo, SerialPortInfo, Telemetry, VehicleSummary } from "../types";
 
 const BAUDS = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 111100, 115200, 230400, 460800, 500000, 625000, 921600, 1000000, 1500000];
 
@@ -63,15 +63,30 @@ function buildConfig(s: Settings): ConnectionConfig {
   }
 }
 
-type Props = { link: LinkInfo; telemetry: Telemetry };
+type Props = { link: LinkInfo; telemetry: Telemetry; notify: (text: string, ok: boolean) => void };
 
-export function ConnectBar({ link, telemetry }: Props) {
+/** Legacy-style selector label: `1-1 QUADROTOR`, `1-154 GIMBAL`. */
+const vehicleLabel = (v: VehicleSummary) => `${v.systemId}-${v.componentId} ${v.component || v.vehicleType}`;
+
+export function ConnectBar({ link, telemetry, notify }: Props) {
   const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULTS, ...loadSetting<Partial<Settings>>(SETTINGS_KEY, {}) }));
   const [ports, setPorts] = useState<SerialPortInfo[]>([]);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   const active = link.state !== "disconnected";
+
+  // Tell the user once per connection when more than one system shows up, so the choice in
+  // the Vehicle selector is not missed (the first autopilot is selected automatically).
+  const systems = new Set(telemetry.vehicles.map((v) => v.systemId)).size;
+  const announced = useRef(false);
+  useEffect(() => {
+    if (link.state !== "connected") announced.current = false;
+    else if (systems > 1 && !announced.current) {
+      announced.current = true;
+      notify(`${systems} vehicles detected (different SYSID). Choose one in the Vehicle selector.`, true);
+    }
+  }, [link.state, systems, notify]);
   const update = (patch: Partial<Settings>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
@@ -188,6 +203,7 @@ export function ConnectBar({ link, telemetry }: Props) {
       {telemetry.vehicles.length > 1 && (
         <select
           aria-label="Vehicle"
+          title="Vehicle / component that commands, parameters and telemetry refer to"
           value={`${telemetry.vehicle?.systemId}:${telemetry.vehicle?.componentId}`}
           onChange={(event) => {
             const [sys, comp] = event.target.value.split(":").map(Number);
@@ -196,7 +212,7 @@ export function ConnectBar({ link, telemetry }: Props) {
         >
           {telemetry.vehicles.map((v) => (
             <option key={`${v.systemId}:${v.componentId}`} value={`${v.systemId}:${v.componentId}`}>
-              SYS {v.systemId}/{v.componentId} {v.vehicleType}
+              {vehicleLabel(v)}
             </option>
           ))}
         </select>

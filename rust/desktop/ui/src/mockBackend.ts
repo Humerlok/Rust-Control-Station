@@ -21,26 +21,30 @@ const RADIUS_DEG = 0.0012;
 const MODES = ["Stabilize", "Acro", "AltHold", "Auto", "Guided", "Loiter", "RTL", "Circle", "Land", "PosHold", "Brake", "Smart_RTL"];
 
 const QUICK_FIELDS: FieldInfo[] = [
-  { key: "alt", label: "Altitude (rel)", unit: "m" },
-  { key: "altasl", label: "Altitude (MSL)", unit: "m" },
-  { key: "groundspeed", label: "Ground speed", unit: "m/s" },
-  { key: "airspeed", label: "Air speed", unit: "m/s" },
-  { key: "verticalspeed", label: "Vertical speed", unit: "m/s" },
-  { key: "roll", label: "Roll", unit: "deg" },
-  { key: "pitch", label: "Pitch", unit: "deg" },
-  { key: "yaw", label: "Yaw", unit: "deg" },
-  { key: "heading", label: "Heading", unit: "deg" },
-  { key: "wp_dist", label: "Distance to WP", unit: "m" },
-  { key: "wpno", label: "Current WP", unit: "" },
-  { key: "nav_bearing", label: "Nav bearing", unit: "deg" },
-  { key: "dist_to_home", label: "Distance to home", unit: "m" },
-  { key: "battery_voltage", label: "Battery voltage", unit: "V" },
-  { key: "battery_current", label: "Battery current", unit: "A" },
-  { key: "battery_remaining", label: "Battery remaining", unit: "%" },
-  { key: "gpsstatus", label: "GPS fix type", unit: "" },
-  { key: "satcount", label: "Satellites", unit: "" },
-  { key: "gpshdop", label: "GPS HDOP", unit: "" },
-  { key: "throttle", label: "Throttle", unit: "%" },
+  { key: "alt", label: "Altitude (rel)", unit: "m", group: "Position" },
+  { key: "altasl", label: "Altitude (MSL)", unit: "m", group: "Position" },
+  { key: "groundspeed", label: "Ground speed", unit: "m/s", group: "Position" },
+  { key: "airspeed", label: "Air speed", unit: "m/s", group: "Position" },
+  { key: "verticalspeed", label: "Vertical speed", unit: "m/s", group: "Position" },
+  { key: "roll", label: "Roll", unit: "deg", group: "Attitude" },
+  { key: "pitch", label: "Pitch", unit: "deg", group: "Attitude" },
+  { key: "yaw", label: "Yaw", unit: "deg", group: "Attitude" },
+  { key: "heading", label: "Heading", unit: "deg", group: "Position" },
+  { key: "wp_dist", label: "Distance to WP", unit: "m", group: "NAV" },
+  { key: "wpno", label: "Current WP", unit: "", group: "NAV" },
+  { key: "nav_bearing", label: "Nav bearing", unit: "deg", group: "NAV" },
+  { key: "dist_to_home", label: "Distance to home", unit: "m", group: "Position" },
+  { key: "battery_voltage", label: "Battery voltage", unit: "V", group: "Battery" },
+  { key: "battery_current", label: "Battery current", unit: "A", group: "Battery" },
+  { key: "battery_remaining", label: "Battery remaining", unit: "%", group: "Battery" },
+  { key: "gpsstatus", label: "GPS fix type", unit: "", group: "Position" },
+  { key: "satcount", label: "Satellites", unit: "", group: "Position" },
+  { key: "gpshdop", label: "GPS HDOP", unit: "", group: "Position" },
+  { key: "gpsstatus2", label: "GPS2 fix type", unit: "", group: "Position" },
+  { key: "satcount2", label: "GPS2 satellites", unit: "", group: "Position" },
+  { key: "gpshdop2", label: "GPS2 HDOP", unit: "", group: "Position" },
+  { key: "ekfstatus", label: "EKF status (max variance)", unit: "", group: "EKF" },
+  { key: "throttle", label: "Throttle", unit: "%", group: "Attitude" },
 ];
 
 const ACTIONS: ActionInfo[] = [
@@ -77,6 +81,7 @@ export function createMockBackend(): Backend {
   let connecting = false;
   let armed = true;
   let mode = "Auto";
+  let selectedVehicle = { systemId: 1, componentId: 1 };
   let description = "Mock link (simulated copter)";
   let t = 0;
   let packets = 0;
@@ -92,7 +97,7 @@ export function createMockBackend(): Backend {
     const alt = armed ? 42 + 6 * Math.sin(t * 0.2) : 0;
     const distHome = Math.hypot(RADIUS_DEG * 111_000 * Math.sin(a), RADIUS_DEG * 111_000 * Math.cos(a));
     return {
-      vehicle: { systemId: 1, componentId: 1 },
+      vehicle: { ...selectedVehicle },
       connected: true,
       armed,
       mode,
@@ -114,6 +119,10 @@ export function createMockBackend(): Backend {
         gpsstatus: 4,
         satcount: 14,
         gpshdop: 0.8,
+        gpsstatus2: 6,
+        satcount2: 22,
+        gpshdop2: 0.6,
+        ekfstatus: 0.05,
         wp_dist: 120 + 40 * Math.sin(t * 0.3),
         wpno: 3,
         nav_bearing: heading,
@@ -125,7 +134,10 @@ export function createMockBackend(): Backend {
       },
       position: { lat, lon, altM: alt },
       home: { lat: CENTER.lat, lon: CENTER.lon, altM: 580 },
-      vehicles: [{ systemId: 1, componentId: 1, vehicleType: "Copter" }],
+      vehicles: [
+        { systemId: 1, componentId: 1, vehicleType: "Copter", component: "QUADROTOR", autopilot: true },
+        { systemId: 1, componentId: 154, vehicleType: "Unknown", component: "GIMBAL", autopilot: false },
+      ],
     };
   }
 
@@ -227,7 +239,9 @@ export function createMockBackend(): Backend {
     },
     linkStatus: async () => lastLink,
     telemetrySnapshot: async () => lastTelemetry,
-    selectVehicle: async () => undefined,
+    async selectVehicle(systemId, componentId) {
+      selectedVehicle = { systemId, componentId };
+    },
     quickFields: async () => QUICK_FIELDS,
     listActions: async () => ACTIONS,
     async arm() {
@@ -270,7 +284,7 @@ export function createMockBackend(): Backend {
     paramSet: phase2.paramSet,
     paramsMetadata: phase2.paramsMetadata,
     paramsParseFile: phase2.paramsParseFile,
-    paramsFormatFile: phase2.paramsFormatFile,
+    paramsSaveFile: phase2.paramsSaveFile,
     calibrationStart: phase2.calibrationStart,
     calibrationAccelConfirm: phase2.calibrationAccelConfirm,
     calibrationCompassAccept: phase2.calibrationCompassAccept,

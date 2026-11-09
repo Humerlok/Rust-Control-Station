@@ -318,16 +318,8 @@ export function FlightPlan({ telemetry, notify }: Props) {
 
   async function saveFile() {
     try {
-      const text = await api.missionFormatFile(editor.items);
-      const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${kind}.waypoints`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      notify(`Saved ${editor.items.length} items to ${link.download}`, true);
+      const path = await api.missionSaveFile(`${kind}.waypoints`, editor.items);
+      if (path) notify(`Saved ${editor.items.length} items to ${path}`, true);
     } catch (failure) {
       notify(`Save failed: ${String(failure)}`, false);
     }

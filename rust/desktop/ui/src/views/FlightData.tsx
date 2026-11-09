@@ -1,6 +1,7 @@
 import { ActionsPanel } from "../components/ActionsPanel";
 import { FlightMap } from "../components/FlightMap";
 import { Hud } from "../components/Hud";
+import { MessageBanner } from "../components/MessageBanner";
 import { MessagesPanel } from "../components/MessagesPanel";
 import { QuickView } from "../components/QuickView";
 import type { StatusText, Telemetry } from "../types";
@@ -19,6 +20,7 @@ export function FlightData({ telemetry, messages, onClearMessages, notify }: Pro
         <div className="panel map-panel">
           <FlightMap telemetry={telemetry} notify={notify} />
           <Hud telemetry={telemetry} />
+          <MessageBanner messages={messages} systemId={telemetry.vehicle?.systemId ?? null} />
         </div>
         <QuickView fields={telemetry.fields} />
       </div>

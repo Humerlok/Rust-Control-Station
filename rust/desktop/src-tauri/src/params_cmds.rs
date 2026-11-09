@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use control_station_ardupilot_meta::ParamMeta;
 use control_station_link::ParamService;
 use control_station_params::{Param, ParsedFile};
-use tauri::State;
+use tauri::{AppHandle, State};
+
+use crate::save_dialog::{ask_save_path, write_file, Filter};
 
 pub struct ParamsState {
     pub service: ParamService,
@@ -47,7 +49,22 @@ pub fn params_parse_file(text: String, state: State<'_, ParamsState>) -> ParsedF
     state.service.parse_file(&text)
 }
 
+/// Asks where to save, then writes every parameter in `.param` format. Resolves to the saved
+/// path, or `None` when the user cancelled.
 #[tauri::command]
-pub fn params_format_file(state: State<'_, ParamsState>) -> String {
-    state.service.format_file()
+pub async fn params_save_file(
+    default_name: String,
+    app: AppHandle,
+    state: State<'_, ParamsState>,
+) -> Result<Option<String>, String> {
+    let filter = Filter {
+        name: "Parameter files",
+        extensions: &["param", "parm"],
+    };
+    let Some(dest) = ask_save_path(&app, "Save parameters", &default_name, Some(filter)).await?
+    else {
+        return Ok(None);
+    };
+    write_file(&dest, state.service.format_file().as_bytes())?;
+    Ok(Some(dest.display().to_string()))
 }

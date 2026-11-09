@@ -2,7 +2,9 @@
 //! `.waypoints` / command-catalog helpers.
 use control_station_ardupilot_meta::{mission_commands as catalog, CommandInfo, VehicleType};
 use control_station_link::{LinkManager, MissionItem, MissionKind, MissionService};
-use tauri::State;
+use tauri::{AppHandle, State};
+
+use crate::save_dialog::{ask_save_path, write_file, Filter};
 
 pub struct MissionState {
     pub service: MissionService,
@@ -58,7 +60,24 @@ pub fn mission_parse_file(text: String) -> Result<Vec<MissionItem>, String> {
     control_station_mission::parse_waypoints(&text).map_err(|e| e.to_string())
 }
 
+/// Asks where to save, then writes `items` as a QGC WPL 110 `.waypoints` file. Resolves to the
+/// saved path, or `None` when the user cancelled.
 #[tauri::command]
-pub fn mission_format_file(items: Vec<MissionItem>) -> String {
-    control_station_mission::format_waypoints(&items)
+pub async fn mission_save_file(
+    default_name: String,
+    items: Vec<MissionItem>,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
+    let filter = Filter {
+        name: "Waypoint files",
+        extensions: &["waypoints", "txt"],
+    };
+    let Some(dest) = ask_save_path(&app, "Save mission", &default_name, Some(filter)).await? else {
+        return Ok(None);
+    };
+    write_file(
+        &dest,
+        control_station_mission::format_waypoints(&items).as_bytes(),
+    )?;
+    Ok(Some(dest.display().to_string()))
 }

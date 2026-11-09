@@ -17,7 +17,33 @@ const DECIMALS: Record<string, number> = {
   wpno: 0,
   gpshdop: 2,
   battery_voltage: 2,
+  satcount2: 0,
+  gpsstatus2: 0,
+  gpshdop2: 2,
+  target_bearing: 0,
+  groundcourse: 0,
+  groundcourse2: 0,
+  wind_dir: 0,
+  lat: 7,
+  lng: 7,
+  lat2: 7,
+  lng2: 7,
+  ahrs2_lat: 7,
+  ahrs2_lng: 7,
+  ekfstatus: 2,
+  ekfvelv: 2,
+  ekfposhor: 2,
+  ekfposvert: 2,
+  ekfcompv: 2,
+  ekfteralt: 2,
+  timeInAir: 0,
+  distTraveled: 0,
+  armed: 0,
 };
+
+// Integer-valued families: RC/servo PWM, ESC RPM, per-battery counters, error counters.
+const INTEGER_KEY = /^(ch\d+(in|out)|esc\d+_rpm|rpm\d|battery_usedmah\d*|battery_remaining\d*|errors_count\d|fenceb_\w+|ter_(load|pend|space)|rssi|remrssi|noise|remnoise|rxerrors|fixedp|txbuffer|rcrssi|i2cerrors|vibeclip\d|ekfflags|gen_status|pidaxis|landed_state|vtol_state|opt_qua|opt_x|opt_y|[agm][xyz][23]?)$/;
+const decimalsFor = (key: string) => DECIMALS[key] ?? (INTEGER_KEY.test(key) ? 0 : 1);
 
 type Layout = { cols: number; rows: number; keys: string[] };
 
@@ -61,7 +87,7 @@ export function QuickView({ fields }: Props) {
     saveSetting(KEY, normalized);
   };
 
-  const info = (key: string): FieldInfo => defs.find((d) => d.key === key) ?? { key, label: key, unit: "" };
+  const info = (key: string): FieldInfo => defs.find((d) => d.key === key) ?? { key, label: key, unit: "", group: "" };
 
   return (
     <div className="panel quick">
@@ -89,7 +115,7 @@ export function QuickView({ fields }: Props) {
         {layout.keys.map((key, index) => {
           const meta = info(key);
           const value = fields[key];
-          const text = value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(DECIMALS[key] ?? 1);
+          const text = value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(decimalsFor(key));
           return (
             <div key={index} className="quick-tile" title="Double-click to choose the value" onDoubleClick={() => setEditing(index)}>
               <span className="quick-label">

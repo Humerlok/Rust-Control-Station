@@ -64,7 +64,8 @@ export interface Backend {
   paramSet(name: string, value: number): Promise<number>;
   paramsMetadata(): Promise<Record<string, ParamMeta>>;
   paramsParseFile(text: string): Promise<ParsedParamFile>;
-  paramsFormatFile(): Promise<string>;
+  /** Asks where to save the `.param` file; resolves to the path, or null when cancelled. */
+  paramsSaveFile(defaultName: string): Promise<string | null>;
   calibrationStart(kind: CalibrationKind): Promise<string>;
   calibrationAccelConfirm(): Promise<string>;
   calibrationCompassAccept(): Promise<string>;
@@ -112,10 +113,11 @@ export interface Backend {
   missionClear(kind: MissionKind): Promise<void>;
   missionCommands(): Promise<MissionCommandInfo[]>;
   missionParseFile(text: string): Promise<MissionItem[]>;
-  missionFormatFile(items: MissionItem[]): Promise<string>;
+  /** Asks where to save the `.waypoints` file; resolves to the path, or null when cancelled. */
+  missionSaveFile(defaultName: string, items: MissionItem[]): Promise<string | null>;
   ftpList(path: string): Promise<FtpEntry[]>;
-  /** File contents, base64 encoded. */
-  ftpDownload(path: string): Promise<string>;
+  /** Asks where to save, then downloads the file there; resolves to the path, or null when cancelled. */
+  ftpDownloadSave(path: string): Promise<string | null>;
   ftpUpload(path: string, dataBase64: string, verify: boolean): Promise<void>;
   ftpRemove(path: string): Promise<void>;
   ftpMkdir(path: string): Promise<void>;
@@ -176,7 +178,7 @@ const tauriBackend: Backend = {
   paramSet: (name, value) => invoke("param_set", { name, value }),
   paramsMetadata: () => invoke("params_metadata"),
   paramsParseFile: (text) => invoke("params_parse_file", { text }),
-  paramsFormatFile: () => invoke("params_format_file"),
+  paramsSaveFile: (defaultName) => invoke("params_save_file", { defaultName }),
   calibrationStart: (kind) => invoke("calibration_start", { kind }),
   calibrationAccelConfirm: () => invoke("calibration_accel_confirm"),
   calibrationCompassAccept: () => invoke("calibration_compass_accept"),
@@ -216,9 +218,9 @@ const tauriBackend: Backend = {
   missionClear: (kind) => invoke("mission_clear", { kind }),
   missionCommands: () => invoke("mission_commands"),
   missionParseFile: (text) => invoke("mission_parse_file", { text }),
-  missionFormatFile: (items) => invoke("mission_format_file", { items }),
+  missionSaveFile: (defaultName, items) => invoke("mission_save_file", { defaultName, items }),
   ftpList: (path) => invoke("ftp_list", { path }),
-  ftpDownload: (path) => invoke("ftp_download", { path }),
+  ftpDownloadSave: (path) => invoke("ftp_download_save", { path }),
   ftpUpload: (path, data, verify) => invoke("ftp_upload", { path, data, verify }),
   ftpRemove: (path) => invoke("ftp_remove", { path }),
   ftpMkdir: (path) => invoke("ftp_mkdir", { path }),

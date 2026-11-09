@@ -1,10 +1,11 @@
 import type { Backend, Unlisten } from "./api";
+import { browserDownload } from "./mockDownload";
 import type { FtpEntry, FtpProgress } from "./types";
 
 type FtpMock = Pick<
   Backend,
   | "ftpList"
-  | "ftpDownload"
+  | "ftpDownloadSave"
   | "ftpUpload"
   | "ftpRemove"
   | "ftpMkdir"
@@ -37,7 +38,8 @@ export function createFtpMock(): FtpMock {
     ["/APM/scripts/example.lua", encode('gcs:send_text(6, "hello from Lua")\n')],
     ["/APM/README.txt", encode("Simulated vehicle files.\n")],
   ]);
-  const dirs = new Set(["/APM", "/APM/scripts", "/APM/logs"]);
+  const dirs = new Set(["/APM", "/APM/scripts", "/APM/LOGS", "/@SYS"]);
+  files.set("/@SYS/uarts.txt", encode("SERIAL0 OTG1 TX=1234 RX=567\n"));
 
   const size = (b64: string) => atob(b64).length;
   const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -65,11 +67,12 @@ export function createFtpMock(): FtpMock {
         for (const [f, data] of files) if (parent(f) === dir) entries.push({ name: f.slice(f.lastIndexOf("/") + 1), isDir: false, size: size(data), modified: now - 3600 });
         return entries;
       }),
-    ftpDownload: (path) =>
+    ftpDownloadSave: (path) =>
       run("read", path, 100, () => {
         const data = files.get(path);
         if (data === undefined) throw `read ${path}: file or directory not found`;
-        return data;
+        const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
+        return browserDownload(path.slice(path.lastIndexOf("/") + 1), bytes);
       }),
     ftpUpload: (path, data) =>
       run("write", path, size(data), () => {
