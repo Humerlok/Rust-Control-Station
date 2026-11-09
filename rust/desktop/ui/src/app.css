@@ -79,6 +79,7 @@
 .banner-count { padding: 0 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.2); font-size: 12px; }
 .banner-close { padding: 0 6px; min-width: 0; line-height: 1.2; background: transparent; border: none; color: inherit; font-size: 16px; cursor: pointer; }
 .banner-close:hover { background: rgba(0, 0, 0, 0.2); }
+.banner-more { pointer-events: none; padding: 2px 8px; border-radius: var(--radius); font-size: 12px; color: var(--text-strong); background: rgba(46, 52, 64, 0.85); }
 .hud-readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 4px; font-size: 11px; color: var(--text-strong); }
 
 .quick-controls { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--border); }

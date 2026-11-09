@@ -426,6 +426,9 @@ impl FtpService {
         let mut next = 0usize;
         let mut stalled = 0;
         let mut burst_supported = true;
+        // The vehicle said "end of file" at `next`. Virtual files (`@SYS/*.txt`) open with a
+        // nominal size (100000) larger than their content, so EOF ends the file early.
+        let mut eof = false;
         while next < size {
             self.check_cancel()?;
             self.emit(op, next as u64, size as u64, false, None);
@@ -447,7 +450,10 @@ impl FtpService {
                     }
                     match frame.opcode {
                         Opcode::Nak => match frame.nak().unwrap_or(FtpError::Fail) {
-                            FtpError::Eof => break,
+                            FtpError::Eof => {
+                                eof = true;
+                                break;
+                            }
                             FtpError::UnknownCommand => {
                                 burst_supported = false;
                                 break;
@@ -476,7 +482,7 @@ impl FtpService {
                     }
                 }
             } else {
-                let reply = self
+                match self
                     .call(
                         op,
                         Frame::request(0, Opcode::ReadFile)
@@ -484,13 +490,26 @@ impl FtpService {
                             .with_offset(next as u32)
                             .with_size(chunk as u8),
                     )
-                    .await?;
-                let len = reply.data.len().min(size - next);
-                buf[next..next + len].copy_from_slice(&reply.data[..len]);
-                chunks.insert(next, len);
+                    .await
+                {
+                    Ok(reply) => {
+                        let len = reply.data.len().min(size - next);
+                        buf[next..next + len].copy_from_slice(&reply.data[..len]);
+                        chunks.insert(next, len);
+                    }
+                    Err(FtpServiceError::Refused {
+                        error: FtpError::Eof,
+                        ..
+                    }) => eof = true,
+                    Err(e) => return Err(e),
+                }
             }
             while let Some(len) = chunks.get(&next) {
                 next += len;
+            }
+            if eof && next == before {
+                buf.truncate(next);
+                return Ok(buf);
             }
             if next == before {
                 stalled += 1;

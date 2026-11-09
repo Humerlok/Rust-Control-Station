@@ -29,7 +29,17 @@ Checks on 2026-11-06 (Linux ARM64, Jetson): `cargo fmt --check`, `cargo clippy -
   - The selector uses legacy labels (`1-1 QUADROTOR`, `1-154 GIMBAL`). A toast appears once per connection when more than one SYSID is seen.
   - Switching vehicle downloads the parameters again, also when a download was still running.
 - Verified: fmt, clippy, `cargo test --workspace` (new tests for the field decoders, the selection rules and STATUSTEXT without a heartbeat), `npm run lint`, `npm run build`. A Firefox headless screenshot of `?mock=1` showed the HUD mode, the `1-1 QUADROTOR` selector and the yellow PreArm banner.
-- **Not verified**: the debug app starts with the dialog plugin on the Jetson and runs without errors for 20 s, but the native Save dialog itself was never opened. Also, the MAVFTP Places and the grouped picker were not clicked through. GPS2, component selection with two SYSIDs, and the banner were not tried with real telemetry.
+- **Tested on a real Cube Orange (ArduCopter 4.7.2, USB, nothing else attached), 2026-11-09**:
+  - Worked: serial connect, the HUD mode, the PreArm/EKF banner, the grouped Quick View picker, and the parameter download (1078) with Save to file through the native dialog.
+  - MAVFTP: Places (`/`, `/APM`, `LOGS`, `scripts`, `STRG_BAK`, `TERRAIN`, `@ROMFS`, `@SYS`) and Download through the dialog (`@SYS/uarts.txt`).
+  - Flight Plan Save file through the dialog.
+  - Bugs found and fixed:
+    - 4.7.2 sends two NULs after every directory entry, which the listing parser read as bogus entries ("DLOGS", "Ffence.stg 65535").
+    - `@SYS` files open with a nominal 100000 bytes and end with an EOF NAK, which was reported as "no answer".
+    - The banner dropped PreArm bursts behind repeated EKF messages; it now ranks by severity and keeps PreArm for 35 s.
+    - With ADSB enabled, a heartbeat from component 0 appeared in the selector; component 0 is now ignored.
+  - Writing to `/dev/ttyACM1` (the second USB interface, not MAVLink here) from a test script wedged the USB CDC until the cable was replugged.
+- **Previously not verified** (now partly covered above): the debug app starts with the dialog plugin on the Jetson and runs without errors for 20 s, but the native Save dialog itself was never opened. Also, the MAVFTP Places and the grouped picker were not clicked through. GPS2, component selection with two SYSIDs, and the banner were not tried with real telemetry.
 
 ## Beta installers (workflow committed, first release NOT yet built)
 

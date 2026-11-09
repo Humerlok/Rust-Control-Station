@@ -256,6 +256,12 @@ pub fn parse_listing(data: &[u8], with_time: bool) -> (Vec<DirEntry>, usize) {
     while pos < data.len() {
         let kind = data[pos];
         pos += 1;
+        // Some ArduPilot versions (seen on 4.7.2) add a second NUL after every entry, and the
+        // vehicle zeroes the unused tail. A stray NUL is not a record: counting it would also
+        // shift the offset of the next page.
+        if kind == 0 {
+            continue;
+        }
         let end = data[pos..]
             .iter()
             .position(|&b| b == 0)
@@ -429,5 +435,26 @@ mod tests {
         assert_eq!((entries.len(), records), (1, 1));
         assert_eq!(entries[0].size, 5);
         assert_eq!(parse_listing(b"", false).1, 0);
+    }
+
+    #[test]
+    fn doubled_terminators_are_not_records() {
+        // ArduCopter 4.7.2 on a Cube Orange, /APM: every entry is followed by two NULs.
+        let data = b"DSTRG_BAK\0\0DLOGS\0\0Dscripts\0\0Ffence.stg\t65535\0\0";
+        let (entries, records) = parse_listing(data, false);
+        assert_eq!(records, 4);
+        let names: Vec<_> = entries
+            .iter()
+            .map(|e| (e.name.as_str(), e.is_dir, e.size))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("STRG_BAK", true, 0),
+                ("LOGS", true, 0),
+                ("scripts", true, 0),
+                ("fence.stg", false, 65535)
+            ]
+        );
     }
 }

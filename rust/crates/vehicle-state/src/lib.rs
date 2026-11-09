@@ -61,7 +61,9 @@ pub fn is_component_heartbeat(
     h: &control_station_mavlink::dialect::HEARTBEAT_DATA,
     component_id: u8,
 ) -> bool {
-    h.mavtype != MavType::MAV_TYPE_GCS && component_id != GCS_COMPONENT
+    // Component 0 is MAV_COMP_ID_ALL, a broadcast address and never a valid source (ArduPilot's
+    // ADSB driver sends such heartbeats when ADSB_TYPE is set).
+    h.mavtype != MavType::MAV_TYPE_GCS && component_id != GCS_COMPONENT && component_id != 0
 }
 
 /// A STATUSTEXT as an event, tagged with the component that sent it.
@@ -322,6 +324,7 @@ mod tests {
         };
         assert!(is_component_heartbeat(h, 1));
         assert!(!is_component_heartbeat(h, 190));
+        assert!(!is_component_heartbeat(h, 0));
     }
 
     #[test]

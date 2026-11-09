@@ -108,6 +108,8 @@ struct Quirks {
     no_burst: bool,
     /// Store a corrupted copy of uploads.
     corrupt_writes: bool,
+    /// Open `@SYS` files with ArduPilot's nominal size (100000) instead of their real size.
+    nominal_sys_size: bool,
 }
 
 struct FakeFtp {
@@ -219,8 +221,13 @@ impl FakeFtp {
                 Some(bytes) => {
                     let session = self.next_session;
                     self.next_session += 1;
-                    self.open.insert(session, path);
-                    let mut r = reply(&request, true).with_data((bytes.len() as u32).to_le_bytes());
+                    self.open.insert(session, path.clone());
+                    let reported = if self.quirks.nominal_sys_size && path.starts_with("/@SYS/") {
+                        100_000u32
+                    } else {
+                        bytes.len() as u32
+                    };
+                    let mut r = reply(&request, true).with_data(reported.to_le_bytes());
                     r.session = session;
                     vec![wrap(r)]
                 }
@@ -236,6 +243,10 @@ impl FakeFtp {
                 else {
                     return nak(&request, 4);
                 };
+                // Like ArduPilot: reading at or past the end is NAKed with EndOfFile.
+                if request.offset as usize >= file.len() {
+                    return nak(&request, 6);
+                }
                 let step = usize::from(request.size);
                 let mut out = Vec::new();
                 let mut offset = request.offset as usize;
@@ -769,4 +780,24 @@ async fn replay_serves_files() {
         .unwrap();
     assert_eq!(ftp.read("/APM/scripts/t.lua").await.unwrap(), script);
     ftp.remove("/APM/scripts/t.lua").await.unwrap();
+}
+
+#[tokio::test]
+async fn virtual_files_end_at_eof_not_at_their_nominal_size() {
+    // ArduPilot opens `@SYS/*.txt` with a nominal 100000 bytes; the content is much shorter.
+    let text = b"SERIAL0 OTG1  TX=12345 RX=678\nSERIAL1 UART7 TX=0 RX=0\n".to_vec();
+    for no_burst in [false, true] {
+        let (ftp, fs, _v) = rig(Quirks {
+            nominal_sys_size: true,
+            no_burst,
+            ..Quirks::default()
+        })
+        .await;
+        fs.lock()
+            .unwrap()
+            .files
+            .insert("/@SYS/uarts.txt".into(), text.clone());
+        let bytes = ftp.read("/@SYS/uarts.txt").await.unwrap();
+        assert_eq!(bytes, text, "no_burst={no_burst}");
+    }
 }

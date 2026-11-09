@@ -51,7 +51,7 @@ pub const FIELDS: &[FieldInfo] = &[
     f("Position", "lng", "GPS longitude", "°"),
     f("Position", "groundcourse", "GPS ground course", "°"),
     f("Position", "gpsstatus", "GPS fix type", ""),
-    f("Position", "satcount", "Satellites", ""),
+    f("Position", "satcount", "GPS satellites", ""),
     f("Position", "gpshdop", "GPS HDOP", ""),
     f("Position", "gpsh_acc", "GPS horizontal accuracy", "m"),
     f("Position", "gpsv_acc", "GPS vertical accuracy", "m"),
