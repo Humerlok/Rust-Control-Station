@@ -55,6 +55,15 @@ Em *Connect*, escolha o tipo **Replay (log)**. Ele precisa de um arquivo `.BIN` 
 - Planejamento de missão: enviar e baixar
 - MAVFTP e gravação de firmware (**só testado com bootloader falso, não grave em placa importante**)
 
+## Novidades desta versão
+
+- **Salvar arquivo**: Download no MAVFTP, *Save file* no Flight Plan e *Save to file* em Parameters abrem uma janela para escolher onde salvar.
+- **MAVFTP**: os atalhos em *Places* agora mostram só as pastas que existem no veículo.
+- **Quick View**: as opções do Mission Planner, agrupadas por categoria (inclui o 2º GPS: `GPS2 satellites`, `GPS2 fix type`, `GPS2 HDOP`...).
+- **HUD**: modo de voo em destaque; fica vermelho por 2 s quando muda.
+- **Mensagens**: alertas, erros críticos e PreArm aparecem numa faixa colorida na parte de baixo do mapa (vermelho, laranja, amarelo).
+- **Vários veículos/componentes**: o seletor ao lado da conexão lista todos os SYSID/componentes (ex.: `1-1 QUADROTOR`, `1-154 GIMBAL`), e um aviso aparece quando há mais de um SYSID.
+
 ## Reportar problemas
 
 Abra uma issue em https://github.com/humerlok/rust-control-station/issues com:

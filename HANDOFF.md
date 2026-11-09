@@ -6,6 +6,31 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-6 are
 
 Checks on 2026-11-06 (Linux ARM64, Jetson): `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (298 passed, 0 failed), `npm run build` and `npm run lint` all clean. The UI build warns that one chunk is over 500 kB (harmless, code-splitting would fix it).
 
+## Beta adjustments from `reajustes.md` (2026-11-09)
+
+- **Save dialogs**: MAVFTP Download, Flight Plan "Save file" and Parameters "Save to file" open a native "Save as" dialog (`tauri-plugin-dialog`, opened from Rust in `src-tauri/src/save_dialog.rs`) and write the file there. The commands are `ftp_download_save`, `mission_save_file`, `params_save_file`; each returns the saved path or `null` on cancel. They replace `ftp_download`, `mission_format_file` and `params_format_file`. The webview gets no generic "write a path" command. In `?mock=1`, saving falls back to a browser download (`mockDownload.ts`).
+- **MAVFTP Places**: built from the vehicle the first time the screen is shown on a connection. It lists `/` and the APM directory (two requests only, so it does not compete with the `param.pck` download), then shows `/`, `/APM`, the real subfolders spelled as the vehicle spells them (`LOGS`/`logs`, `scripts`) and any `@...` virtual trees listed in `/`. The fixed `/APM/lua` entry is gone.
+- **Quick View**: `vehicle-state/src/fields.rs` holds 352 fields with the legacy `CurrentState` keys and `[GroupText]` groups. The picker groups them. New sources:
+  - GPS2_RAW (`satcount2`, `gpsstatus2`, `gpshdop2`, `lat2`...) and the GPS_RAW_INT extras
+  - BATTERY_STATUS by id (batteries 1-9, cells) and BATTERY2
+  - POWER_STATUS, HWSTATUS, MCU_STATUS, EKF_STATUS_REPORT, vibration clipping, WIND
+  - RANGEFINDER, DISTANCE_SENSOR, RADIO_STATUS, SCALED_PRESSURE 1/2, TERRAIN_REPORT, AHRS2, RPM
+  - FENCE_STATUS, GENERATOR_STATUS, EFI_STATUS, MOUNT_STATUS
+  - RC 1-16, servo 1-16, IMU 1-3, ESC 1-16, PID_TUNING, OPTICAL_FLOW, EXTENDED_SYS_STATE, velocities and climb rate
+  - computed time in air, distance traveled and turn rate
+
+  Not ported: Transponder, the CAN/UAVCAN entries, `Software`/version strings, home-derived values (HomeAlt, ToH/ToT, km left), the sensor-health booleans, and the rest of the legacy properties that are not plain message fields.
+- **HUD**: the flight mode is drawn large under the horizon and turns red for 2 s after a change (legacy behaviour).
+- **Message banner** (`MessageBanner.tsx`): shows STATUSTEXT at WARNING or worse, plus `PreArm:`/`Arm:`/`Tuning:`, over the bottom of the map. Colours: red for 0-2, orange for 3, yellow for 4 and pre-arm. Up to 3 messages, repeats counted, 10 s each, dismissable. Only the selected system's messages are shown. STATUSTEXT from a component that never sent a heartbeat is now emitted too.
+- **Vehicle/component selection**: every non-GCS heartbeat (not MAV_TYPE_GCS, not compid 190, not our sysid) becomes a selectable entry, so gimbals and companions show up.
+  - `VehicleSummary` gained `component` (MAV_TYPE label) and `autopilot`.
+  - Automatic selection prefers the first autopilot. A non-autopilot picked automatically gives way to a later autopilot, but a manual choice sticks.
+  - Stream requests go to autopilots only. A non-autopilot reports no flight mode.
+  - The selector uses legacy labels (`1-1 QUADROTOR`, `1-154 GIMBAL`). A toast appears once per connection when more than one SYSID is seen.
+  - Switching vehicle downloads the parameters again, also when a download was still running.
+- Verified: fmt, clippy, `cargo test --workspace` (new tests for the field decoders, the selection rules and STATUSTEXT without a heartbeat), `npm run lint`, `npm run build`. A Firefox headless screenshot of `?mock=1` showed the HUD mode, the `1-1 QUADROTOR` selector and the yellow PreArm banner.
+- **Not verified**: the debug app starts with the dialog plugin on the Jetson and runs without errors for 20 s, but the native Save dialog itself was never opened. Also, the MAVFTP Places and the grouped picker were not clicked through. GPS2, component selection with two SYSIDs, and the banner were not tried with real telemetry.
+
 ## Beta installers (workflow committed, first release NOT yet built)
 
 - `.github/workflows/beta-release.yml` builds on a `beta-*` tag (or manually from Actions > Beta release > Run workflow, which publishes nothing and keeps the files as run artifacts). Matrix: `windows-latest` (x64), `windows-11-arm`, `ubuntu-22.04` (x86_64), `ubuntu-22.04-arm`. Outputs: NSIS `.exe` + `.msi` (Windows), `.deb`, `.rpm`, `.AppImage` (Linux), attached to a GitHub pre-release by `softprops/action-gh-release`. Unsigned (Windows SmartScreen warns).
