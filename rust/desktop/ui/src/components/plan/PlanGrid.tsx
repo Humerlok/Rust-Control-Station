@@ -1,3 +1,7 @@
+/**
+ * Spreadsheet-style editor for the mission, fence or rally items (virtualized); column headers follow the selected row's command.
+ * Props: items, command catalog, per-row stats, selection and edit callbacks.
+ */
 import { memo, useEffect, useState } from "react";
 import type { MissionCommandInfo, MissionItem, MissionKind } from "../../types";
 import { VirtualList } from "../VirtualList";
@@ -13,6 +17,7 @@ import {
   type RowStats,
 } from "./missionModel";
 
+// Row height in px, passed to VirtualList; the CSS row fills it (height: 100%).
 const ROW_HEIGHT = 34;
 
 /** A number input that keeps what the user is typing and commits every valid number at once. */
@@ -31,6 +36,7 @@ function NumCell({
   title?: string;
   onCommit: (v: number) => void;
 }) {
+  // Rounded for display so floating-point noise does not appear in the cell.
   const shown = String(+value.toFixed(decimals));
   const [text, setText] = useState(shown);
   const [focused, setFocused] = useState(false);
@@ -78,6 +84,7 @@ type RowProps = {
   onDelete: (index: number) => void;
 };
 
+// Memoized so scrolling and typing only re-render rows whose props changed.
 const PlanRow = memo(function PlanRow(p: RowProps) {
   const { index, item, info, kind } = p;
   const home = hasHome(kind) && index === 0;

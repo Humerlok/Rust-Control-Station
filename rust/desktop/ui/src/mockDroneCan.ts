@@ -1,3 +1,7 @@
+/**
+ * Mock DroneCAN: two fake nodes (GPS, ESC) with parameters, logs, firmware update, allocation and a bus inspector.
+ * Spread into the mock `Backend` by mockBackend.ts, which also calls `reset()` on (dis)connect.
+ */
 import type { Backend, Unlisten } from "./api";
 import {
   idleDroneCan,

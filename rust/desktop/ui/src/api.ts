@@ -1,3 +1,7 @@
+/**
+ * The only module that talks to the backend: `api` is the Tauri implementation or, in a plain browser
+ * (`?mock=1` or no Tauri runtime), the fake one. Components must use `api`, never call `invoke`/`listen` directly.
+ */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createMockBackend } from "./mockBackend";
@@ -149,11 +153,13 @@ export interface Backend {
   onFlashProgress(cb: (progress: FlashProgress) => void): Promise<Unlisten>;
 }
 
+// Event names must match the `emit(...)` calls in src-tauri/src/main.rs.
 const subscribe =
   <T>(event: string) =>
   (cb: (payload: T) => void): Promise<Unlisten> =>
     listen<T>(event, (e) => cb(e.payload));
 
+// Each entry maps to a `#[tauri::command]` in src-tauri (camelCase args here, snake_case command names).
 const tauriBackend: Backend = {
   listSerialPorts: () => invoke("list_serial_ports"),
   connect: (config) => invoke("connect", { config }),
@@ -186,6 +192,7 @@ const tauriBackend: Backend = {
   calibrationCancel: () => invoke("calibration_cancel"),
   radioCalibrationFinish: () => invoke("radio_calibration_finish"),
   calibrationStatus: () => invoke("calibration_status"),
+  // The Rust command (motor_cmds.rs) names this argument `class`.
   motorFrame: (frameClass, frameType, genericCount) => invoke("motor_frame", { class: frameClass, frameType, genericCount }),
   motorStart: (request) => invoke("motor_start", { request }),
   motorStartAll: (request, count) => invoke("motor_start_all", { request, count }),
@@ -250,6 +257,7 @@ const tauriBackend: Backend = {
   onFlashProgress: subscribe<FlashProgress>("flash-progress"),
 };
 
+// Mock when asked via `?mock=1` or when not running inside the Tauri webview.
 const useMock =
   typeof window !== "undefined" &&
   (new URLSearchParams(window.location.search).has("mock") || !("__TAURI_INTERNALS__" in window));

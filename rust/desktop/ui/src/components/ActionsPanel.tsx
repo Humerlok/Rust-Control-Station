@@ -1,3 +1,7 @@
+/**
+ * Flight Data actions: arm/disarm, flight mode, set waypoint, restart mission and the backend action list.
+ * Disarm and flagged actions ask for confirmation; a failed arm/disarm offers a "force" retry that bypasses the vehicle safety checks.
+ */
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { ActionInfo, Telemetry } from "../types";
@@ -5,6 +9,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 
 type Result = { ok: boolean; text: string };
 
+// Which confirmation dialog is open, if any.
 type Pending =
   | { kind: "disarm" }
   | { kind: "force"; arming: boolean; reason: string }
@@ -35,6 +40,7 @@ export function ActionsPanel({ telemetry }: Props) {
   const mode = modeChoice || telemetry.mode || "";
   const selectedAction = actions.find((a) => a.name === actionName);
 
+  // Runs one command and shows its result line; returns the error text (null on success) so callers can offer a forced retry.
   async function run(label: string, call: () => Promise<string>): Promise<string | null> {
     setBusy(true);
     try {
@@ -65,6 +71,7 @@ export function ActionsPanel({ telemetry }: Props) {
     await run(arming ? "Force arm" : "Force disarm", () => (arming ? api.arm(true) : api.disarm(true)));
   }
 
+  // Quick buttons stay disabled when the vehicle does not list that mode (matched case-insensitively).
   function quickMode(name: string) {
     const exact = telemetry.availableModes.find((m) => m.toLowerCase() === name.toLowerCase());
     return exact ? () => run(`Mode ${exact}`, () => api.setMode(exact)) : undefined;
@@ -90,6 +97,7 @@ export function ActionsPanel({ telemetry }: Props) {
     );
   };
 
+  // Mission item sequence numbers are 16-bit on the wire.
   const seq = Number(waypoint);
   const seqValid = Number.isInteger(seq) && seq >= 0 && seq <= 65535;
 

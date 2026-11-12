@@ -1,3 +1,8 @@
+//! Builders for the MAVLink messages behind the UI actions (arm, mode, reboot, takeoff, ...).
+//!
+//! Everything here is pure: it only builds `MavMessage`s and the `ACTIONS` list shown by the UI.
+//! Sending, ACK waiting and retries live in `control_station_link::LinkManager`.
+
 // ArduPilot firmware still depends on REQUEST_DATA_STREAM and MISSION_SET_CURRENT, which the
 // MAVLink dialect marks as superseded.
 #![allow(deprecated)]

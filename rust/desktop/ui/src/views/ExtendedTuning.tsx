@@ -1,3 +1,7 @@
+/**
+ * Extended Tuning (Copter only): curated tuning controls from tuning/copter.ts over the shared paramStore (useParams).
+ * Writes only this screen's own pending edits via paramStore.writeParams.
+ */
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ParamValueInput } from "../components/ParamValueInput";
@@ -16,6 +20,7 @@ export function ExtendedTuning({ telemetry, notify }: Props) {
   const [doubling, setDoubling] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Only show controls whose parameter exists on this vehicle; `names` lists alternatives (first one found wins).
   const groups = useMemo(
     () =>
       COPTER_GROUPS.map((group) => ({
@@ -61,6 +66,7 @@ export function ExtendedTuning({ telemetry, notify }: Props) {
     );
   }
 
+  // Edits are staged in paramStore; mirrored controls (roll/pitch lock, lat/lon twin) get the same value.
   function change({ control, name }: Resolved, value: number | null) {
     paramStore.setEdit(name, value);
     if (control.mirror === "rollpitch" && lockRollPitch) {
@@ -74,6 +80,7 @@ export function ExtendedTuning({ telemetry, notify }: Props) {
     }
   }
 
+  // Safety check: edits that more than double the current (non-zero) value need confirmation before writing.
   function doubled(): string[] {
     return pending.filter((name) => {
       const entry = p.byName.get(name);

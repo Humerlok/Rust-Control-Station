@@ -1,3 +1,4 @@
+/** DroneCAN state: one snapshot (`api.dronecanStatus`) then live updates (`api.onDroneCan`). */
 import { useEffect, useState } from "react";
 import { api, type Unlisten } from "./api";
 import { idleDroneCan, type DroneCanState } from "./types";

@@ -1,3 +1,8 @@
+/**
+ * Heads-up display over the map: heading tape, artificial horizon, mode and readouts (battery voltage, current, %).
+ * The user can drag it by the top bar and resize it by the corner handle; it stays inside the map panel and its
+ * place is saved in localStorage ("hud.layout"). Double-click the top bar to reset.
+ */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadSetting, saveSetting } from "../storage";
 import type { Telemetry } from "../types";

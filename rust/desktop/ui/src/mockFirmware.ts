@@ -1,3 +1,7 @@
+/**
+ * Mock firmware flashing: fake catalog/builds and a simulated bootloader flash with progress events.
+ * Spread into the mock `Backend` by mockBackend.ts.
+ */
 import type { Backend, Unlisten } from "./api";
 import type { BoardInfo, FirmwareBuild, FlashProgress, LoadedFirmware } from "./types";
 

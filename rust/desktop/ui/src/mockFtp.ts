@@ -1,3 +1,7 @@
+/**
+ * Mock MAVFTP: an in-memory file tree (base64 contents) with progress events like the real FtpService.
+ * Spread into the mock `Backend` by mockBackend.ts.
+ */
 import type { Backend, Unlisten } from "./api";
 import { browserDownload } from "./mockDownload";
 import type { FtpEntry, FtpProgress } from "./types";
@@ -44,6 +48,7 @@ export function createFtpMock(): FtpMock {
   const size = (b64: string) => atob(b64).length;
   const bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 
+  // Wraps an operation: emits ftp-style progress (start, then finished or error) around it.
   async function run<T>(op: string, path: string, total: number, body: () => T | Promise<T>): Promise<T> {
     emit({ op, path, done: 0, total, finished: false, error: null });
     await sleep(120);

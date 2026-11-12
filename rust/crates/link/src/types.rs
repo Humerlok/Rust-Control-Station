@@ -1,3 +1,8 @@
+//! Types shared between `link` and the desktop UI.
+//!
+//! Serialized as camelCase JSON; tests at the bottom pin the exact shape. When a field changes here,
+//! update `ui/src/types.ts` and `ui/src/mockBackend.ts` too (the UI mirrors this contract by hand).
+
 use std::collections::BTreeMap;
 
 use control_station_vehicle_state::{Position, StatusText, VehicleId};

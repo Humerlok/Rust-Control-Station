@@ -1,3 +1,7 @@
+/**
+ * Live uPlot graph of the watched inspector fields (x axis in seconds). Props: series store, watch keys and labels, paused, onRemove, onClear.
+ * Redraws are throttled to REFRESH_MS; while paused the plot is frozen but the store keeps recording.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
@@ -10,6 +14,7 @@ const WINDOWS = [
   { label: "60 s", seconds: 60 },
   { label: "All", seconds: 0 },
 ];
+// Minimum interval between redraws, to coalesce bursts of snapshots.
 const REFRESH_MS = 200;
 
 // Frost and Aurora tokens from theme.css; the fallbacks are the same Nord values.
@@ -29,6 +34,7 @@ function cssColor(name: string, fallback: string): string {
   return value || fallback;
 }
 
+// Series colour by position, cycling through the palette.
 export const seriesColor = (index: number): string => {
   const [name, fallback] = PALETTE_VARS[index % PALETTE_VARS.length];
   return cssColor(name, fallback);
@@ -61,6 +67,7 @@ export function GraphPanel({ store, keys, labels, paused, onRemove, onClear }: P
   const [windowSeconds, setWindowSeconds] = useState(30);
   const [last, setLast] = useState<Record<string, number | undefined>>({});
 
+  // Refs give the uPlot callbacks and the refresh timer the latest values without rebuilding the plot.
   const windowRef = useRef(windowSeconds);
   const pausedRef = useRef(paused);
   const keysRef = useRef(keys);
@@ -106,6 +113,7 @@ export function GraphPanel({ store, keys, labels, paused, onRemove, onClear }: P
       scales: {
         x: {
           time: false,
+          // Fixed-width sliding window ending at the newest sample; "All" (0) shows everything.
           range: (_plot, min, max) => {
             const span = windowRef.current;
             const hi = max > min ? max : min + 1;
@@ -165,6 +173,7 @@ export function GraphPanel({ store, keys, labels, paused, onRemove, onClear }: P
       plotRef.current?.setData(buildData());
       setLast(Object.fromEntries(keysRef.current.map((key) => [key, store.last(key)])));
     };
+    // Debounce: the first store update arms a timer, later ones within REFRESH_MS ride on it.
     const schedule = () => {
       if (timer === undefined) timer = window.setTimeout(refresh, REFRESH_MS);
     };

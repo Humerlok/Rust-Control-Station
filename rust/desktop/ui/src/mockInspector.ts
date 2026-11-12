@@ -1,3 +1,7 @@
+/**
+ * Mock MAVLink Inspector: simulated messages firing at their own rates, aggregated into snapshots.
+ * Spread into the mock `Backend` by mockBackend.ts; the shape matches `InspectorSnapshot` in types.ts.
+ */
 import type { Backend, Unlisten } from "./api";
 import type { InspectorField, InspectorMessage, InspectorPoint, InspectorSnapshot } from "./types";
 
@@ -17,6 +21,7 @@ type Definition = {
   fields: (t: number) => InspectorField[];
 };
 
+// Messages are generated every TICK_MS; snapshots are emitted every SNAPSHOT_MS, hz is averaged over RATE_WINDOW_MS.
 const TICK_MS = 50;
 const SNAPSHOT_MS = 250;
 const RATE_WINDOW_MS = 3000;

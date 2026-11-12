@@ -1,3 +1,7 @@
+/**
+ * Top-bar connection controls: link type, endpoint fields, Connect/Disconnect, vehicle selector and link statistics.
+ * The last settings are persisted under the localStorage key "connect.settings".
+ */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { loadSetting, saveSetting } from "../storage";
@@ -41,6 +45,7 @@ function parsePort(text: string): number {
   return value;
 }
 
+// Turns the form into the backend ConnectionConfig; throws a user-readable string when a field is missing or invalid.
 function buildConfig(s: Settings): ConnectionConfig {
   switch (s.kind) {
     case "auto":
@@ -98,8 +103,10 @@ export function ConnectBar({ link, telemetry, notify }: Props) {
   };
   useEffect(refreshPorts, []);
 
+  // The first dropdown mixes link kinds and serial ports; serial entries are encoded as "serial:<port>".
   const selectValue = settings.kind === "serial" ? `serial:${settings.serialPort}` : settings.kind;
   const portNames = ports.map((p) => p.name);
+  // The saved serial port may be unplugged right now: keep it as an option so the selection does not silently change.
   const knownSaved = settings.serialPort && !portNames.includes(settings.serialPort);
 
   function onSelectKind(value: string) {

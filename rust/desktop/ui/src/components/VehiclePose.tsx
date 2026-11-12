@@ -1,3 +1,7 @@
+/**
+ * Calibration illustration: a top-view quad rotated (CSS 3D, degrees) to the orientation the user must place the vehicle in.
+ * `name` is the orientation name from the backend (Level, Left, Right, Nose down, Nose up, Back).
+ */
 const TRANSFORMS: Record<string, string> = {
   Level: "rotateX(0deg)",
   Left: "rotateY(-68deg)",

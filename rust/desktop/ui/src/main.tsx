@@ -1,3 +1,4 @@
+/** Entry point: mounts <App /> into #root. */
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./theme.css";

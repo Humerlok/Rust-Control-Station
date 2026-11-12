@@ -1,3 +1,13 @@
+//! Thin Tauri shell: every `#[tauri::command]` only translates a UI request into a call on the
+//! domain crates (`LinkManager` and the services in `control_station_link`) and turns errors into
+//! strings. No protocol logic belongs here.
+//!
+//! Layout: the link-level commands (connect, arm, mode, ...) are in this file; each feature has its
+//! own `*_cmds.rs`. `main()` creates the services, registers them as Tauri state and spawns small
+//! pump tasks that forward service events to the UI (`emit("telemetry" | "ftp-progress" | ...)`).
+//! The UI side of these names is `ui/src/api.ts`; new events also need a grant in
+//! `capabilities/default.json`.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
@@ -24,6 +34,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
 
+/// Tauri state for the link itself; each service is registered as its own state in `main()`.
 struct AppState {
     link: LinkManager,
 }
@@ -36,6 +47,7 @@ struct SerialPortDto {
     pid: Option<u16>,
 }
 
+/// Tauri commands return `Result<_, String>`; the UI shows the text as is.
 fn text<T>(result: Result<T, control_station_link::LinkError>) -> Result<T, String> {
     result.map_err(|e| e.to_string())
 }
@@ -152,6 +164,7 @@ async fn set_home_here(
 }
 
 fn main() {
+    // One shared link; every service gets a clone (cheap, it is an `Arc` inside).
     let link = LinkManager::new();
     let mut events = link.subscribe();
     let params_link = link.clone();
@@ -167,6 +180,10 @@ fn main() {
         .manage(AppState { link })
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Pattern repeated below for every service: create it, `app.manage` it so commands can
+            // take it as `State<_>`, then spawn a task that forwards its broadcast events to the UI
+            // (lagged receivers just skip ahead; a closed channel ends the task).
 
             let cache_dir = app
                 .path()

@@ -1,3 +1,7 @@
+/**
+ * Modal confirmation used before risky commands. Escape or a click on the backdrop cancels; the confirm button has focus.
+ * `tone` colours the dialog (warn/danger); `children` renders extra controls between the message and the buttons.
+ */
 import { useEffect, type ReactNode } from "react";
 
 type Props = {
@@ -21,6 +25,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
+  // Close on Escape from anywhere in the window.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();

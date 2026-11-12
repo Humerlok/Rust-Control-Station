@@ -1,3 +1,7 @@
+/**
+ * DroneCAN screen: node table, node parameters, restart, firmware update and bus inspector, all through the MAVLink CAN relay.
+ * Uses useDroneCan (api.dronecan* + event). Update is blocked while armed and always goes through a danger ConfirmDialog.
+ */
 import { useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -22,6 +26,7 @@ function uptime(seconds: number): string {
   return h > 0 ? `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s` : `${m}m ${String(s).padStart(2, "0")}s`;
 }
 
+// Chunked so String.fromCharCode does not overflow the call stack on large firmware files.
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let text = "";
@@ -47,6 +52,7 @@ export function DroneCan({ telemetry, active, notify }: Props) {
   const updateTarget = useRef<DroneCanNode | null>(null);
 
   const connected = telemetry.connected;
+  // Firmware transfer in flight: disables Update/restart-sensitive actions and shows the do-not-unplug warning.
   const updating = state.update !== null && (state.update.phase === "starting" || state.update.phase === "sending");
 
   function chooseFirmware(node: DroneCanNode) {
@@ -54,6 +60,7 @@ export function DroneCan({ telemetry, active, notify }: Props) {
     fileInput.current?.click();
   }
 
+  // Reads the chosen file, asks the backend to inspect it (format, CRC), then opens the confirm dialog; nothing is sent yet.
   async function onFirmwareFile(file: File | undefined) {
     const node = updateTarget.current;
     if (fileInput.current) fileInput.current.value = "";

@@ -1,3 +1,7 @@
+/**
+ * Hook behind the Inspector screens: owns the snapshot stream, pause, pinned graph series and cleanup.
+ * `source` selects MAVLink or DroneCAN; the stream is only enabled while `active`.
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Unlisten } from "../../api";
 import type { InspectorMessage, InspectorSnapshot } from "../../types";
@@ -43,6 +47,7 @@ export function useInspector(active: boolean, notify: Notify, source: InspectorS
   const [paused, setPaused] = useState(false);
   const [watched, setWatched] = useState<string[]>([]);
 
+  // Refs let the long-lived listener and callbacks read current values without re-subscribing.
   const pausedRef = useRef(false);
   const watchedRef = useRef<string[]>([]);
   const activeRef = useRef(active);
@@ -71,6 +76,7 @@ export function useInspector(active: boolean, notify: Notify, source: InspectorS
         }
         unlisten = off;
         await source.enable(true);
+        // Re-register the watches chosen earlier; they are released on the backend when the screen goes away.
         for (const key of watchedRef.current) {
           store.track(key);
           await source.watch(key);

@@ -127,11 +127,10 @@ for the UI, on both Windows and Ubuntu.
 
 ### Related docs
 
+`docs/ARCHITECTURE.md` is the human contributor guide (data flow, where things live, how to add a feature end to end).
 `AGENTS.md` (repo guidelines, same rules as below) and `HANDOFF.md` (per-phase state, what is verified
 vs. needs a real drone, next phase) are the running project notes; read `HANDOFF.md` before starting
-new phase work. `Beta/BETA.md` is the tester-facing beta guide (Portuguese), `reajustes.md` lists the
-requested adjustments for the next version (Portuguese), and `ONBOARDING.md` is a team onboarding guide, not
-project documentation. `Cargo.toml` raises opt-level for the dataflash crate even in dev builds because
+new phase work. `Beta/BETA.md` is the tester-facing beta guide (Portuguese). `Cargo.toml` raises opt-level for the dataflash crate even in dev builds because
 parsing large `.BIN` logs is otherwise unusably slow.
 
 ### Style & rules

@@ -1,3 +1,7 @@
+/**
+ * MAVFTP file browser for the vehicle's filesystem: api.ftpList/Download/Upload/Crc/Remove/Rmdir/Rename/Mkdir/Cancel + progress event.
+ * Delete, overwrite, rename and mkdir go through a ConfirmDialog; uploads can verify the CRC32 afterwards.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -7,6 +11,7 @@ import "../mavftp.css";
 type Props = { connected: boolean; active: boolean; notify: (text: string, ok: boolean) => void };
 
 const byName = (a: FtpEntry, b: FtpEntry) => a.name.localeCompare(b.name, undefined, { numeric: true });
+// Folders first, then natural name order.
 const sortEntries = (list: FtpEntry[]) => list.sort((a, b) => Number(b.isDir) - Number(a.isDir) || byName(a, b));
 
 /**
@@ -39,6 +44,7 @@ function formatTime(seconds: number | null): string {
   return new Date(seconds * 1000).toLocaleString();
 }
 
+// Chunked so String.fromCharCode does not overflow the call stack on large files.
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let text = "";
@@ -67,6 +73,7 @@ export function MavFtp({ connected, active: shown, notify }: Props) {
   const [places, setPlaces] = useState<string[]>(["/"]);
   const discovered = useRef(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Bumped on every directory load so a slow, outdated listing cannot overwrite a newer one.
   const token = useRef(0);
 
   useEffect(() => {
@@ -188,6 +195,7 @@ export function MavFtp({ connected, active: shown, notify }: Props) {
     await run(`Uploaded ${name}`, () => api.ftpUpload(join(dir, name), data, verify));
   }
 
+  // Uploads go through base64 over IPC, hence the size cap; an existing file asks for overwrite confirmation first.
   async function onPickFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 16 * 1024 * 1024) {
@@ -216,6 +224,7 @@ export function MavFtp({ connected, active: shown, notify }: Props) {
     }
   }
 
+  // Rename and new folder need a valid single path segment (no `/`).
   const needsName = pending?.kind === "rename" || pending?.kind === "mkdir";
   const nameInvalid = needsName && (nameValue.trim() === "" || nameValue.includes("/"));
 

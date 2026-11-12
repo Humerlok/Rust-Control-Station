@@ -1,3 +1,7 @@
+/**
+ * Calibration screen: accel, compass, radio, ESC, gyro and baro. State comes from useCalibration; actions call api.calibration*.
+ * Safety: starts are blocked while armed, and ESC/gyro/baro go through a ConfirmDialog (props-off warning).
+ */
 import { useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -12,7 +16,9 @@ type Props = {
 };
 
 const ACCEL_STEPS = ["Level", "Left", "Right", "Nose down", "Nose up", "Back"];
+// Vehicle STATUSTEXT lines matching this are shown in the messages panel.
 const RELEVANT = /calib|accel|compass|mag|gyro|baro|esc|radio|level|rc\d|position|offset|fitness/i;
+// Typical PWM range (us) mapped onto the radio bars.
 const RC_MIN = 800;
 const RC_MAX = 2200;
 
@@ -28,6 +34,7 @@ export function Calibration({ telemetry, messages, notify }: Props) {
   const [confirm, setConfirm] = useState<Confirm | null>(null);
 
   const active = cal.state === "running" || cal.state === "waiting";
+  // Calibration is refused while disconnected or armed.
   const blockedReason = !telemetry.connected
     ? "Connect to a vehicle first."
     : telemetry.armed
@@ -54,6 +61,7 @@ export function Calibration({ telemetry, messages, notify }: Props) {
   }
 
   const recent = messages.filter((m) => RELEVANT.test(m.text)).slice(-8).reverse();
+  // While radio calibration runs show the backend's recorded min/max; otherwise a live view of channels 1-8.
   const radioRows =
     kindIs("radio") && cal.radio.length > 0
       ? cal.radio

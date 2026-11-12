@@ -1,3 +1,7 @@
+/**
+ * Motor Test screen: spin one/all/sequence of motors (api.motorStart/motorStartAll/motorStartSequence/motorStopAll), tune MOT_SPIN_ARM/MIN, show ESC telemetry.
+ * Safety: needs disarmed + props-off acknowledgement, throttle above HIGH_PERCENT needs `allowHigh`, STOP ALL is always enabled.
+ */
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -24,6 +28,7 @@ const fmt = (value: number | null, digits: number, unit: string) => (value === n
 
 export function MotorTest({ telemetry, active, notify }: Props) {
   const connected = telemetry.connected;
+  // ESC telemetry is only requested while this screen is visible and connected.
   const state = useMotorTest(active && connected);
   const params = useParams();
   const [frame, setFrame] = useState<MotorFrame | null>(null);
@@ -39,6 +44,7 @@ export function MotorTest({ telemetry, active, notify }: Props) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Falls back to the Q_FRAME_* names (QuadPlane); the backend maps class/type to the motor layout and test order.
   const frameClass = params.byName.get("FRAME_CLASS")?.value ?? params.byName.get("Q_FRAME_CLASS")?.value ?? null;
   const frameType = params.byName.get("FRAME_TYPE")?.value ?? params.byName.get("Q_FRAME_TYPE")?.value ?? null;
 
@@ -57,7 +63,7 @@ export function MotorTest({ telemetry, active, notify }: Props) {
     };
   }, [connected, frameClass, frameType, genericCount]);
 
-  // Show the vehicle's current MOT_SPIN_* values until the user types their own.
+  // Show the vehicle's current MOT_SPIN_* values (stored as 0-1 fractions, shown as %) until the user types their own.
   const currentArm = params.byName.get("MOT_SPIN_ARM")?.value;
   const currentMin = params.byName.get("MOT_SPIN_MIN")?.value;
   useEffect(() => {
@@ -76,6 +82,7 @@ export function MotorTest({ telemetry, active, notify }: Props) {
     secondsValue > 0 &&
     (throttleType === "pilot" || (Number.isFinite(throttleValue) && throttle.trim() !== ""));
 
+  // Starting is blocked while armed; STOP ALL stays available whenever connected.
   const blockedReason = !connected
     ? "Connect to a vehicle first."
     : telemetry.armed
@@ -102,6 +109,7 @@ export function MotorTest({ telemetry, active, notify }: Props) {
 
   /** Every spin goes through here: props-off acknowledgement first, then a high-throttle confirmation. */
   function guarded(label: string, what: string, call: (allowHigh: boolean) => Promise<string>) {
+    // Props-off is acknowledged once per visit; a throttle above CONFIRM_PERCENT is confirmed again whenever its value changes.
     const high = percent && throttleValue > HIGH_PERCENT;
     const needsThrottleCheck = percent && throttleValue > CONFIRM_PERCENT && confirmedThrottle !== throttleValue;
     const go = (allowHigh: boolean) => {
@@ -134,6 +142,7 @@ export function MotorTest({ telemetry, active, notify }: Props) {
   const startSequence = () =>
     guarded("Sequence", "Test the motors in sequence?", (allowHigh) => api.motorStartSequence(request(0, allowHigh), count));
 
+  // Backend validates and writes the parameter (disarmed only); value is in percent.
   function writeSpin(which: SpinParam, text: string) {
     const value = Number(text);
     void run(`MOT_SPIN_${which.toUpperCase()}`, () => api.motorSetSpin(which, value));

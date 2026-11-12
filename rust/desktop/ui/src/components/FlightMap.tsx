@@ -1,3 +1,7 @@
+/**
+ * Flight Data map: live vehicle and home markers, flight track, base-layer switch and a right-click menu (Takeoff, Fly To Here, Set Home Here).
+ * Every map command asks for confirmation; altitude is metres relative to home. Persists "map.base" and "takeoff.alt" in localStorage.
+ */
 import L, { type LatLngExpression, type LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,11 +26,14 @@ const BASE_LAYERS = {
 } as const;
 type BaseKey = keyof typeof BASE_LAYERS;
 
+// Track polyline length cap (oldest points are dropped).
 const MAX_TRACK_POINTS = 2000;
+// Approximate context-menu size in px, used to keep the menu inside the map.
 const MENU_WIDTH = 160;
 const MENU_HEIGHT = 110;
 const TAKEOFF_KEY = "takeoff.alt";
 
+// Arrow marker rotated by the heading in degrees (clockwise from north).
 function vehicleIcon(heading: number): L.DivIcon {
   const svg =
     `<svg viewBox="0 0 34 34" width="34" height="34" style="transform: rotate(${heading}deg)">` +
@@ -47,6 +54,7 @@ type BehaviorProps = {
   onDismiss: () => void;
 };
 
+// Imperative Leaflet behaviour that react-leaflet components cannot express: centering, resize and map events.
 function MapBehavior({ position, follow, onUserDrag, onContext, onDismiss }: BehaviorProps) {
   const map = useMap();
   const centered = useRef(false);
@@ -55,6 +63,7 @@ function MapBehavior({ position, follow, onUserDrag, onContext, onDismiss }: Beh
 
   useEffect(() => {
     if (lat === undefined || lon === undefined) return;
+    // The first fix always centers the map; afterwards it only follows while `follow` is on (dragging the map turns it off).
     if (!centered.current) {
       centered.current = true;
       map.setView([lat, lon], 17, { animate: false });
@@ -64,6 +73,7 @@ function MapBehavior({ position, follow, onUserDrag, onContext, onDismiss }: Beh
   }, [map, lat, lon, follow]);
 
   useEffect(() => {
+    // Leaflet does not notice container resizes (panel layout changes), so re-measure.
     const observer = new ResizeObserver(() => map.invalidateSize());
     observer.observe(map.getContainer());
     return () => observer.disconnect();
@@ -97,6 +107,7 @@ export function FlightMap({ telemetry, notify }: Props) {
 
   const position: LatLngTuple | null = telemetry.position ? [telemetry.position.lat, telemetry.position.lon] : null;
   const home: LatLngTuple | null = telemetry.home ? [telemetry.home.lat, telemetry.home.lon] : null;
+  // Heading falls back to yaw when the vehicle does not report one.
   const heading = Math.round(telemetry.fields.heading ?? telemetry.fields.yaw ?? 0);
   const icon = useMemo(() => vehicleIcon(heading), [heading]);
   const lat = position?.[0];
@@ -104,6 +115,7 @@ export function FlightMap({ telemetry, notify }: Props) {
 
   useEffect(() => {
     if (lat === undefined || lon === undefined) return;
+    // Skip repeated positions and keep only the newest MAX_TRACK_POINTS.
     setTrack((points) => {
       const last = points[points.length - 1];
       if (last && last[0] === lat && last[1] === lon) return points;
@@ -126,6 +138,7 @@ export function FlightMap({ telemetry, notify }: Props) {
     setMenu(null);
   }
 
+  // Relative altitude limits in metres; Takeoff and Fly To need a valid value.
   const altitudeValue = Number(altitude);
   const altitudeValid = Number.isFinite(altitudeValue) && altitudeValue > 0 && altitudeValue <= 10000;
 

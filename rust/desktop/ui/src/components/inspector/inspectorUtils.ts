@@ -1,10 +1,13 @@
+/** Pure helpers for the MAVLink / DroneCAN inspector: formatting, search, sorting, grouping, watch keys and clipboard copy. */
 import { inspectorKey } from "../../types";
 import type { InspectorField, InspectorMessage, InspectorValue } from "../../types";
 
+// A message with no packet for this long is shown dimmed as stale.
 export const STALE_MS = 2000;
 
 export type SortMode = "id" | "name" | "rate";
 
+// Row identity: system/component/message id.
 export const messageKey = (m: Pick<InspectorMessage, "systemId" | "componentId" | "messageId">) =>
   `${m.systemId}/${m.componentId}/${m.messageId}`;
 
@@ -62,6 +65,7 @@ export type ComponentGroup = {
 };
 export type SystemGroup = { key: string; systemId: number; components: ComponentGroup[] };
 
+// System > component > messages tree; ids ascending, messages ordered by `mode`.
 export function groupMessages(messages: InspectorMessage[], mode: SortMode): SystemGroup[] {
   const systems = new Map<number, Map<number, ComponentGroup>>();
   for (const m of messages) {

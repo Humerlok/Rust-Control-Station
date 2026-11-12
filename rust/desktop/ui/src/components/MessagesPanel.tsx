@@ -1,3 +1,4 @@
+/** Flight Data message log: all STATUSTEXT lines, newest first, colour-coded by MAV_SEVERITY, with a Clear button. */
 import type { StatusText } from "../types";
 
 const pad = (n: number) => String(n).padStart(2, "0");

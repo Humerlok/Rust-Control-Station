@@ -1,3 +1,4 @@
+/** App shell: top bar, navigation and all screens; owns live telemetry (`useLive`) and the toast shown by `notify`. */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isMockBackend } from "./api";
 import { ConnectBar } from "./components/ConnectBar";
@@ -14,10 +15,6 @@ import { Firmware } from "./views/Firmware";
 import { MavFtp } from "./views/MavFtp";
 import { MotorTest } from "./views/MotorTest";
 import { Parameters } from "./views/Parameters";
-import { Placeholder } from "./views/Placeholder";
-
-// Screens that stay mounted while hidden so unsaved edits and scroll positions survive navigation.
-const LIVE_VIEWS = ["flight-data", "flight-plan", "calibration", "parameters", "ext-tuning", "mavftp", "inspector", "firmware", "motor-test", "dronecan"];
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -61,11 +58,11 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const label = NAV.flatMap((g) => g.items).find((i) => i.id === view)?.label ?? "";
   const connected = link.state === "connected" && telemetry.connected;
 
   const selectedKey = telemetry.vehicle ? `${telemetry.vehicle.systemId}:${telemetry.vehicle.componentId}` : null;
 
+  // Parameter cache is per vehicle: tell the store when the link or the selected system:component changes
   useEffect(() => {
     paramStore.setConnection(link.state === "connected", telemetry.connected, telemetry.vehicleType, selectedKey);
   }, [link.state, telemetry.connected, telemetry.vehicleType, selectedKey]);
@@ -97,6 +94,7 @@ export function App() {
       </nav>
 
       <main className="content">
+        {/* Every screen stays mounted and is only hidden, so unsaved edits and scroll positions survive navigation. */}
         <div className="view" hidden={view !== "flight-data"}>
           <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} />
         </div>
@@ -127,7 +125,6 @@ export function App() {
         <div className="view" hidden={view !== "ext-tuning"}>
           <ExtendedTuning telemetry={telemetry} notify={notify} />
         </div>
-        {!LIVE_VIEWS.includes(view) && <Placeholder title={label} />}
       </main>
 
       {toast && (

@@ -1,9 +1,15 @@
+/**
+ * Pure mission model helpers (no React): item edits, geometry and validation. In a MissionItem x = latitude (deg), y = longitude (deg), z = altitude (m).
+ * Missions keep a fixed home row at index 0; fence and rally lists do not.
+ */
 import type { MissionCommandInfo, MissionItem, MissionKind } from "../../types";
 
+// MAV_CMD ids: NAV_WAYPOINT, fence polygon vertex (inclusion), rally point.
 export const CMD_WAYPOINT = 16;
 export const CMD_FENCE_VERTEX = 5001;
 export const CMD_RALLY_POINT = 5100;
 
+// MAV_FRAME values: 3 = global relative altitude, 0 = global (above sea level), 10 = terrain altitude.
 export const FRAME_OPTIONS = [
   { value: 3, label: "Relative" },
   { value: 0, label: "Absolute" },
@@ -38,6 +44,7 @@ export function homeItem(lat: number, lon: number, altM: number): MissionItem {
   return makeItem({ frame: 0, command: CMD_WAYPOINT, x: lat, y: lon, z: altM });
 }
 
+// Structural edits (add, insert, remove, move) renumber `seq` so it equals the array index.
 export const renumber = (items: MissionItem[]): MissionItem[] => items.map((item, seq) => ({ ...item, seq }));
 
 export function addPoint(items: MissionItem[], item: MissionItem): MissionItem[] {
@@ -73,6 +80,7 @@ export function isPositional(item: MissionItem, commands: CommandMap): boolean {
   return takesPosition && (item.x !== 0 || item.y !== 0);
 }
 
+// Haversine distance and initial bearing on a spherical Earth: accurate enough for planning.
 const EARTH_RADIUS_M = 6_371_000;
 const rad = (deg: number) => (deg * Math.PI) / 180;
 
@@ -93,6 +101,7 @@ export function bearingDeg(a: Pick<MissionItem, "x" | "y">, b: Pick<MissionItem,
 export type RowStats = { dist: number | null; az: number | null; grade: number | null };
 
 /** Distance, azimuth and gradient of each positional item from the previous positional one. */
+// Grade is a percentage and only computed between items in the same frame (altitudes are otherwise not comparable).
 export function computeStats(items: MissionItem[], commands: CommandMap): RowStats[] {
   let previous: MissionItem | null = null;
   return items.map((item) => {

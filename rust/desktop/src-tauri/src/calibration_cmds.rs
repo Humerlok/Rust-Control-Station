@@ -1,3 +1,6 @@
+//! Tauri commands for the Calibration screen (accelerometer, compass, ...). Each one calls
+//! `CalibrationService`; progress reaches the UI through the `calibration` event from `main()`.
+
 use control_station_link::{CalibrationKind, CalibrationService, CalibrationState};
 use tauri::State;
 

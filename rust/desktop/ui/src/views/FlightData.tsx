@@ -1,3 +1,4 @@
+/** Flight Data screen: map with HUD overlays, Quick View, status messages and action buttons; purely presentational over `telemetry`. */
 import { ActionsPanel } from "../components/ActionsPanel";
 import { FlightMap } from "../components/FlightMap";
 import { GpsBadge } from "../components/GpsBadge";

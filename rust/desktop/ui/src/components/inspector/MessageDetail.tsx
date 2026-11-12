@@ -1,3 +1,7 @@
+/**
+ * Right-hand pane of the inspector: fields of the selected message with per-field Graph toggles, Pin and Copy JSON/text.
+ * `query` highlights matching field names; `originLabel` names the first tree level (System or Node).
+ */
 import type { InspectorField, InspectorMessage } from "../../types";
 import {
   copyText,
@@ -49,6 +53,7 @@ function FieldRow({
   onToggleWatch: (key: string) => void;
   highlight: boolean;
 }) {
+  // Array fields get one graph toggle per numeric element; scalars get one toggle.
   const { value } = field;
   if (Array.isArray(value)) {
     return (

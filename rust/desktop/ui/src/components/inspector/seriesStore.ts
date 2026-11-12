@@ -1,3 +1,4 @@
+/** Time/value buffers behind the inspector graph. Times are milliseconds from the backend (GraphPanel converts to seconds). */
 import type { InspectorPoint } from "../../types";
 
 export type SeriesBuffer = { t: number[]; v: number[] };

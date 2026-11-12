@@ -1,3 +1,15 @@
+//! `LinkManager`: owns the single active connection and every vehicle heard on it.
+//!
+//! How it works:
+//! - `connect` opens a transport and spawns three tasks: `reader_task` (bytes -> MAVLink packets ->
+//!   vehicle state), `writer_task` (queued frames -> bytes) and `ticker_task` (heartbeats, stream
+//!   requests, rates and the periodic telemetry snapshot).
+//! - Each connection has a `generation`; tasks of an older generation exit as soon as they notice it
+//!   changed, so a stale connection can never write into the new state.
+//! - Other crates and the services in this crate never touch the transport: they subscribe to
+//!   `subscribe_packets` / `subscribe` and send through `send` / `send_command`.
+//! - Commands wait for COMMAND_ACK and are retried (see `Timing`).
+
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, MutexGuard},
@@ -27,6 +39,7 @@ use crate::{
     },
 };
 
+/// Timeouts of the link; tests shorten them (see `LinkManager::with_timing`).
 #[derive(Debug, Clone, Copy)]
 pub struct Timing {
     pub heartbeat_timeout: Duration,
@@ -53,6 +66,7 @@ struct AckEvent {
     result: u8,
 }
 
+/// The running tasks of one connection; dropping it aborts them.
 struct Session {
     tx: mpsc::Sender<Vec<u8>>,
     tasks: Vec<JoinHandle<()>>,
@@ -66,6 +80,7 @@ impl Drop for Session {
     }
 }
 
+/// Raw totals since connect; `last_seq` (per system/component) is how lost packets are counted.
 #[derive(Default)]
 struct Counters {
     bytes_rx: u64,
@@ -88,6 +103,7 @@ struct Rates {
     quality_percent: f64,
 }
 
+/// Mutable link state, behind one mutex. Never hold the lock across an `.await`.
 struct Inner {
     state: LinkState,
     description: String,
@@ -99,10 +115,13 @@ struct Inner {
     /// The user picked `selected` by hand: automatic selection must not change it.
     user_selected: bool,
     streams_requested: HashSet<VehicleId>,
+    /// MAVLink sequence number of the next frame we send.
     sequence: u8,
     session: Option<Session>,
+    /// Something changed since the last telemetry snapshot; the ticker sends one when set.
     dirty: bool,
     local_port: Option<u16>,
+    /// Bumped on every connect/disconnect so tasks of an older connection stop themselves.
     generation: u64,
 }
 
@@ -685,6 +704,7 @@ async fn open_config(config: &ConnectionConfig) -> Result<Connection, LinkError>
     Ok(control_station_transport::open(&endpoint).await?)
 }
 
+/// Reads bytes, parses MAVLink, updates vehicle state and republishes each packet on the bus.
 async fn reader_task(shared: Arc<Shared>, mut reader: Box<dyn LinkReader>, generation: u64) {
     let mut parser = Parser::new();
     let mut buf = vec![0u8; 8192];
@@ -713,6 +733,7 @@ async fn reader_task(shared: Arc<Shared>, mut reader: Box<dyn LinkReader>, gener
     }
 }
 
+/// Writes queued frames to the transport, so callers never block on I/O.
 async fn writer_task(
     shared: Arc<Shared>,
     mut writer: Box<dyn LinkWriter>,
@@ -733,6 +754,8 @@ async fn writer_task(
     }
 }
 
+/// Every `Timing::tick`: asks new autopilots for data streams, and once a second sends our
+/// heartbeat and the link stats; pushes a telemetry snapshot whenever state changed.
 async fn ticker_task(shared: Arc<Shared>, generation: u64) {
     let tick = shared.timing.tick;
     let ticks_per_second =
