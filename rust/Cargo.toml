@@ -23,7 +23,7 @@ resolver = "2"
 opt-level = 3
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Rust Control Station contributors"]

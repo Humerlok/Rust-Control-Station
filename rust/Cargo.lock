@@ -372,7 +372,7 @@ checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
 
 [[package]]
 name = "control-station-ardupilot-meta"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "control-station-mavlink",
  "flate2",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-commands"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "control-station-ardupilot-meta",
  "control-station-mavlink",
@@ -395,14 +395,14 @@ dependencies = [
 
 [[package]]
 name = "control-station-dataflash"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "control-station-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "control-station-ardupilot-meta",
@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-dronecan"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -432,7 +432,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-firmware"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-link"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "control-station-ardupilot-meta",
  "control-station-commands",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-map-cache"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -473,7 +473,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-mavftp"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -481,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-mavlink"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "mavlink",
  "serde",
@@ -490,7 +490,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-mission"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -499,7 +499,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-params"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -508,7 +508,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-speedlog"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "control-station-ardupilot-meta",
  "control-station-dataflash",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-transport"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "futures-util",
  "thiserror 2.0.21",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "control-station-vehicle-state"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "control-station-ardupilot-meta",
  "control-station-mavlink",
