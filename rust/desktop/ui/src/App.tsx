@@ -15,6 +15,7 @@ import { Firmware } from "./views/Firmware";
 import { MavFtp } from "./views/MavFtp";
 import { MotorTest } from "./views/MotorTest";
 import { Parameters } from "./views/Parameters";
+import { SpeedLog } from "./views/SpeedLog";
 
 type NavItem = { id: string; label: string };
 const NAV: Array<{ group: string; items: NavItem[] }> = [
@@ -36,7 +37,13 @@ const NAV: Array<{ group: string; items: NavItem[] }> = [
       { id: "mavftp", label: "MAVFTP" },
     ],
   },
-  { group: "Tools", items: [{ id: "inspector", label: "Inspector" }] },
+  {
+    group: "Tools",
+    items: [
+      { id: "inspector", label: "Inspector" },
+      { id: "speedlog", label: "SpeedLOG" },
+    ],
+  },
 ];
 
 type Toast = { text: string; ok: boolean; id: number };
@@ -109,6 +116,9 @@ export function App() {
         </div>
         <div className="view" hidden={view !== "inspector"}>
           <Inspector active={view === "inspector"} notify={notify} />
+        </div>
+        <div className="view" hidden={view !== "speedlog"}>
+          <SpeedLog active={view === "speedlog"} connected={connected} notify={notify} />
         </div>
         <div className="view" hidden={view !== "calibration"}>
           <Calibration telemetry={telemetry} messages={messages} notify={notify} />

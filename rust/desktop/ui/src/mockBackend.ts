@@ -14,6 +14,7 @@ import type {
 import { emptyLink, emptyTelemetry } from "./types";
 import { createInspectorMock } from "./mockInspector";
 import { createFirmwareMock } from "./mockFirmware";
+import { createSpeedLogMock } from "./mockSpeedLog";
 import { createFtpMock } from "./mockFtp";
 import { createMissionMock } from "./mockMission";
 import { createDroneCanMock } from "./mockDroneCan";
@@ -311,5 +312,6 @@ export function createMockBackend(): Backend {
     ...createMissionMock(),
     ...createFtpMock(),
     ...createFirmwareMock(),
+    ...createSpeedLogMock(),
   };
 }

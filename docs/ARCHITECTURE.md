@@ -41,6 +41,7 @@ Rules that keep it maintainable:
 | add a telemetry value for Quick View or the HUD | `crates/vehicle-state/src/fields.rs` (`FIELDS`, `apply`), then read `telemetry.fields.<key>` in the UI |
 | add a vehicle action (a button) | `crates/commands` (builder + `ACTIONS`), `LinkManager` method, command in `src-tauri/src/main.rs` |
 | change a screen | `desktop/ui/src/views/<Screen>.tsx`, with the helpers in `components/` |
+| change the log plotter (Tools > SpeedLOG) | `crates/speedlog` (data), `crates/link/src/logs.rs` (vehicle logs), `src-tauri/src/speedlog_cmds.rs` + `log_cmds.rs`, `ui/src/views/SpeedLog.tsx` + `components/speedlog/` |
 | change the JSON the UI receives | `crates/link/src/types.rs` (tests pin it), mirror in `ui/src/types.ts` and `ui/src/mockBackend.ts` |
 
 ## Adding a feature end to end

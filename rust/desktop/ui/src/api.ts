@@ -39,7 +39,18 @@ import type {
   SerialPortInfo,
   SpinParam,
   StatusText,
+  SpeedLogInfo,
+  SpeedLogLang,
+  SpeedLogMessage,
+  SpeedLogMode,
+  SpeedLogParam,
+  SpeedLogPreset,
+  SpeedLogSeries,
+  SpeedLogTrace,
+  SpeedLogType,
   Telemetry,
+  VehicleLogEntry,
+  VehicleLogProgress,
 } from "./types";
 
 export type Unlisten = () => void;
@@ -139,6 +150,30 @@ export interface Backend {
   firmwareIdentify(port: string): Promise<BoardInfo>;
   firmwareFlash(port: string): Promise<BoardInfo>;
   firmwareCancel(): Promise<void>;
+  /** Native "open log" dialog, then parses the file; null when cancelled. */
+  speedlogOpen(): Promise<SpeedLogInfo | null>;
+  speedlogClose(): Promise<void>;
+  /** The log that is open, if any (it survives a reload of the UI). */
+  speedlogInfo(): Promise<SpeedLogInfo | null>;
+  speedlogTree(lang: SpeedLogLang): Promise<SpeedLogType[]>;
+  /** Traces reduced to the visible window `range` (seconds; whole log when null); null entries cannot be plotted. */
+  speedlogSeries(
+    requests: SpeedLogTrace[],
+    range: [number, number] | null,
+    buckets?: number,
+  ): Promise<Array<SpeedLogSeries | null>>;
+  speedlogModes(): Promise<SpeedLogMode[]>;
+  speedlogParams(lang: SpeedLogLang): Promise<SpeedLogParam[]>;
+  speedlogMessages(lang: SpeedLogLang): Promise<SpeedLogMessage[]>;
+  speedlogPresets(): Promise<SpeedLogPreset[]>;
+  /** The vehicle's onboard logs (MAVFTP /APM/LOGS when available, else LOG_REQUEST_LIST). */
+  logsList(): Promise<VehicleLogEntry[]>;
+  /** Downloads a log (or takes it from the cache) and opens it in SpeedLOG. */
+  logsOpen(entry: VehicleLogEntry): Promise<SpeedLogInfo>;
+  /** Asks where to save, then downloads the log there; the path, or null when cancelled. */
+  logsSave(entry: VehicleLogEntry): Promise<string | null>;
+  logsCancel(): Promise<void>;
+  onLogsProgress(cb: (p: VehicleLogProgress) => void): Promise<Unlisten>;
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
@@ -243,6 +278,19 @@ const tauriBackend: Backend = {
   firmwareIdentify: (port) => invoke("firmware_identify", { port }),
   firmwareFlash: (port) => invoke("firmware_flash", { port }),
   firmwareCancel: () => invoke("firmware_cancel"),
+  speedlogOpen: () => invoke("speedlog_open"),
+  speedlogClose: () => invoke("speedlog_close"),
+  speedlogInfo: () => invoke("speedlog_info"),
+  speedlogTree: (lang) => invoke("speedlog_tree", { lang }),
+  speedlogSeries: (requests, range, buckets) => invoke("speedlog_series", { requests, range, buckets }),
+  speedlogModes: () => invoke("speedlog_modes"),
+  speedlogParams: (lang) => invoke("speedlog_params", { lang }),
+  speedlogMessages: (lang) => invoke("speedlog_messages", { lang }),
+  speedlogPresets: () => invoke("speedlog_presets"),
+  logsList: () => invoke("logs_list"),
+  logsOpen: (entry) => invoke("logs_open", { entry }),
+  logsSave: (entry) => invoke("logs_save", { entry }),
+  logsCancel: () => invoke("logs_cancel"),
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
@@ -255,6 +303,7 @@ const tauriBackend: Backend = {
   onMissionProgress: subscribe<MissionProgress>("mission-progress"),
   onFtpProgress: subscribe<FtpProgress>("ftp-progress"),
   onFlashProgress: subscribe<FlashProgress>("flash-progress"),
+  onLogsProgress: subscribe<VehicleLogProgress>("logs-progress"),
 };
 
 // Mock when asked via `?mock=1` or when not running inside the Tauri webview.

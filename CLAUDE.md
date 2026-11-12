@@ -68,7 +68,12 @@ rust/
                        signatures (checked against the legacy table in `tests/golden_signatures.txt`), data-driven bit
                        codec (`Value`), CAN transfer layer (29-bit id, tail byte, CRC16, multi-frame, reassembly) (pure)
     commands/        — builders for arm/mode/reboot/takeoff/actions (+ ACTIONS list)
-    dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage)
+    dataflash/       — reader for ArduPilot .BIN logs (FMT-driven, resyncs on garbage; offset index per message id,
+                       single-column reads, FMTU/UNIT/MULT units and the `#` instance column)
+    speedlog/        — SpeedLOG log analysis (port of github.com/Humerlok/SpeedLOG): field tree with instances
+                       (`IMU[1]`), series with min/max reduction for a window, flight modes, PARM changes, MSG/ERR/EV
+                       decoded, presets, embedded ArduPilot message/field/parameter docs in EN+PT
+                       (`data/descriptions/*.json.gz`, provenance in `data/SOURCE.md`) (pure)
     link/            — LinkManager (one connection, vehicles, stats, ACK-checked commands, packet bus, AUTO scan, log Replay)
                        plus services built on its public API: ParamService (download/set/metadata), CalibrationService,
                        InspectorService (per-message stats, decoded fields, watched series), MissionService
@@ -77,7 +82,8 @@ rust/
                        bootloader identify and flash), MotorTestService (DO_MOTOR_TEST with the safety rules, ESC
                        telemetry), DroneCanService (CAN forward relay as node 127: node table, logs, node parameters,
                        save, restart, node firmware update through a file server, dynamic node id allocation, bus
-                       inspector with the same snapshot format as the MAVLink one)
+                       inspector with the same snapshot format as the MAVLink one), LogService (onboard logs: lists
+                       `/APM/LOGS` over MAVFTP when available, else LOG_REQUEST_LIST; downloads by FTP or LOG_DATA)
     map-cache/       — TileProvider, OfflineRegion, download policy validation
   desktop/
     src-tauri/       — thin Tauri shell: commands call LinkManager; telemetry/statustext/link events go to the UI
@@ -108,7 +114,9 @@ To drive the real window without the OS foreground (screenshots, scripted clicks
 
 Phases 1-3 are done (connect, Flight Data, actions, reboot, parameters, calibration, Extended
 Tuning, MAVLink Inspector, mission planning). Phase 4 is implemented: MAVFTP and firmware
-flashing (see HANDOFF.md; the user flashed a Cube Orange with it). Phase 5 (Motor Test) and
+flashing (see HANDOFF.md; the user flashed a Cube Orange with it). Tools > SpeedLOG (log
+plotter, with "Vehicle logs" download) is implemented on branch `feature/speedlog`; its Hardware Report
+and PID Review views are not ported yet. Phase 5 (Motor Test) and
 Phase 6 (DroneCAN nodes, parameters, restart, node firmware update, node id allocation and the
 DroneCAN Inspector) is implemented. DroneCAN has only been tested
 against a fake CAN node behind a fake MAVLink vehicle, never on a real CAN bus.

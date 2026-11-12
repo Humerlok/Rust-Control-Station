@@ -6,6 +6,7 @@ members = [
   "crates/commands",
   "crates/map-cache",
   "crates/dataflash",
+  "crates/speedlog",
   "crates/ardupilot-meta",
   "crates/params",
   "crates/mission",
