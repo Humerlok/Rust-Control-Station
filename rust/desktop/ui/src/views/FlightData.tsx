@@ -1,5 +1,6 @@
 import { ActionsPanel } from "../components/ActionsPanel";
 import { FlightMap } from "../components/FlightMap";
+import { GpsBadge } from "../components/GpsBadge";
 import { Hud } from "../components/Hud";
 import { MessageBanner } from "../components/MessageBanner";
 import { MessagesPanel } from "../components/MessagesPanel";
@@ -19,6 +20,7 @@ export function FlightData({ telemetry, messages, onClearMessages, notify }: Pro
       <div className="fd-main">
         <div className="panel map-panel">
           <FlightMap telemetry={telemetry} notify={notify} />
+          <GpsBadge telemetry={telemetry} />
           <Hud telemetry={telemetry} />
           <MessageBanner messages={messages} systemId={telemetry.vehicle?.systemId ?? null} />
         </div>

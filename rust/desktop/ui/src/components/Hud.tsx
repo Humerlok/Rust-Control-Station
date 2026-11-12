@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { loadSetting, saveSetting } from "../storage";
 import type { Telemetry } from "../types";
 
 const PX_PER_DEG = 3;
@@ -92,15 +93,109 @@ function useRecentChange(mode: string | null): boolean {
   return changed;
 }
 
+/** HUD box inside the map panel: `left`/`bottom` offsets and width, in px. */
+type HudLayout = { x: number; b: number; w: number };
+
+const HUD_KEY = "hud.layout";
+const HUD_DEFAULT: HudLayout = { x: 10, b: 28, w: 210 };
+const HUD_MIN_W = 160;
+
+function validLayout(value: Partial<HudLayout>): HudLayout {
+  const ok = (n: unknown, fallback: number) => (typeof n === "number" && Number.isFinite(n) ? n : fallback);
+  return { x: ok(value.x, HUD_DEFAULT.x), b: ok(value.b, HUD_DEFAULT.b), w: ok(value.w, HUD_DEFAULT.w) };
+}
+
+/** Keeps the HUD fully inside `bounds` (the map panel). */
+function clampLayout(layout: HudLayout, bounds: { width: number; height: number }, hudHeight: number): HudLayout {
+  const w = Math.max(HUD_MIN_W, Math.min(layout.w, bounds.width));
+  const x = Math.max(0, Math.min(layout.x, bounds.width - w));
+  const b = Math.max(0, Math.min(layout.b, bounds.height - hudHeight));
+  return { x, b, w };
+}
+
+type Drag = { mode: "move" | "resize"; startX: number; startY: number; origin: HudLayout };
+
 export function Hud({ telemetry }: { telemetry: Telemetry }) {
   const f = telemetry.fields;
   const live = telemetry.connected;
   const mode = live ? telemetry.mode : null;
   const modeChanged = useRecentChange(mode);
   const heading = normalizeHeading(f.heading ?? f.yaw ?? 0);
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<Drag | null>(null);
+  const [layout, setLayout] = useState<HudLayout>(() => validLayout(loadSetting<Partial<HudLayout>>(HUD_KEY, {})));
+
+  const bounds = useCallback(() => {
+    const parent = rootRef.current?.parentElement;
+    return parent ? { width: parent.clientWidth, height: parent.clientHeight } : null;
+  }, []);
+
+  /** Re-clamps after the panel or the HUD itself changes size. */
+  const reclamp = useCallback(() => {
+    const box = bounds();
+    const hud = rootRef.current;
+    if (!box || !hud || box.width === 0) return;
+    setLayout((current) => {
+      const next = clampLayout(current, box, hud.offsetHeight);
+      return next.x === current.x && next.b === current.b && next.w === current.w ? current : next;
+    });
+  }, [bounds]);
+
+  useLayoutEffect(() => {
+    reclamp();
+    const hud = rootRef.current;
+    const parent = hud?.parentElement;
+    if (!hud || !parent) return;
+    const observer = new ResizeObserver(reclamp);
+    observer.observe(parent);
+    observer.observe(hud);
+    return () => observer.disconnect();
+  }, [reclamp]);
+
+  const start = (event: React.PointerEvent<HTMLElement>, kind: Drag["mode"]) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current = { mode: kind, startX: event.clientX, startY: event.clientY, origin: layout };
+  };
+
+  const move = (event: React.PointerEvent<HTMLElement>) => {
+    const d = drag.current;
+    const box = bounds();
+    const hud = rootRef.current;
+    if (!d || !box || !hud) return;
+    const dx = event.clientX - d.startX;
+    const dy = event.clientY - d.startY;
+    const next = d.mode === "move" ? { ...d.origin, x: d.origin.x + dx, b: d.origin.b - dy } : { ...d.origin, w: d.origin.w + dx };
+    setLayout(clampLayout(next, box, hud.offsetHeight));
+  };
+
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const end = () => {
+    if (!drag.current) return;
+    drag.current = null;
+    saveSetting(HUD_KEY, layoutRef.current);
+  };
+
+  const reset = () => {
+    saveSetting(HUD_KEY, HUD_DEFAULT);
+    setLayout(HUD_DEFAULT);
+  };
+
   return (
-    <div className="hud" aria-label="Heads-up display">
-      <div className="hud-badges">
+    <div className="hud" ref={rootRef} aria-label="Heads-up display" style={{ left: layout.x, bottom: layout.b, width: layout.w }}>
+      <div
+        className="hud-badges hud-handle"
+        title="Drag to move the HUD, double-click to reset"
+        onPointerDown={(e) => start(e, "move")}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+        onDoubleClick={reset}
+      >
         <span className={`badge ${live ? (telemetry.armed ? "danger" : "ok") : ""}`}>{live ? (telemetry.armed ? "ARMED" : "DISARMED") : "NO LINK"}</span>
         <span className="hud-type dim">{live ? telemetry.vehicleType : ""}</span>
       </div>
@@ -116,9 +211,18 @@ export function Hud({ telemetry }: { telemetry: Telemetry }) {
         <span>GS {fmt(f.groundspeed, 1)} m/s</span>
         <span>ALT {fmt(f.alt, 1)} m</span>
         <span>
-          BAT {fmt(f.battery_voltage, 1)} V {f.battery_remaining !== undefined ? `${fmt(f.battery_remaining)}%` : ""}
+          BAT {fmt(f.battery_voltage, 1)} V {fmt(f.battery_current, 1)} A{" "}
+          {f.battery_remaining !== undefined ? `${fmt(f.battery_remaining)}%` : ""}
         </span>
       </div>
+      <div
+        className="hud-resize"
+        title="Drag to resize"
+        onPointerDown={(e) => start(e, "resize")}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+      />
     </div>
   );
 }

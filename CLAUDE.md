@@ -38,7 +38,8 @@ npm run tauri          # launch desktop app (runs from ../src-tauri)
 ```
 
 UI-only loop (no Tauri, mock backend): `npm run dev` in `rust/desktop/ui`, then open `/?mock=1`.
-`npm run lint` runs ESLint 9 (flat config in `eslint.config.js`) on `src`.
+`npm run lint` runs ESLint 9 (flat config in `eslint.config.js`) on `src`. The UI has no unit-test script;
+`npm run build` (typecheck) and `npm run lint` are its checks, and `?mock=1` is the manual loop.
 
 The icon set in `rust/desktop/src-tauri/icons/` is tracked, so Linux builds need nothing extra; see HANDOFF.md
 "Linux / Jetson development" for the run recipe and CDP caveats. Beta installers (Windows/Linux, x86_64/ARM64) are
@@ -128,7 +129,9 @@ for the UI, on both Windows and Ubuntu.
 
 `AGENTS.md` (repo guidelines, same rules as below) and `HANDOFF.md` (per-phase state, what is verified
 vs. needs a real drone, next phase) are the running project notes; read `HANDOFF.md` before starting
-new phase work. `Cargo.toml` raises opt-level for the dataflash crate even in dev builds because
+new phase work. `Beta/BETA.md` is the tester-facing beta guide (Portuguese), `reajustes.md` lists the
+requested adjustments for the next version (Portuguese), and `ONBOARDING.md` is a team onboarding guide, not
+project documentation. `Cargo.toml` raises opt-level for the dataflash crate even in dev builds because
 parsing large `.BIN` logs is otherwise unusably slow.
 
 ### Style & rules
