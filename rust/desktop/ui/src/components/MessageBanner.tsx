@@ -1,3 +1,7 @@
+/**
+ * Overlay on the map showing recent important STATUSTEXT messages (warnings, pre-arm failures) with repeat counts, auto-expiry and per-message dismiss.
+ * Props: the status text log and the selected system id.
+ */
 import { useEffect, useRef, useState } from "react";
 import type { StatusText } from "../types";
 

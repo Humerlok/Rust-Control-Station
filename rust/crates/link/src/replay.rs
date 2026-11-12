@@ -15,8 +15,8 @@ use control_station_mavlink::{
     dialect::{
         GpsFixType, MavAutopilot, MavModeFlag, MavParamType, MavResult, MavSeverity, MavState,
         MavType, ATTITUDE_DATA, COMMAND_ACK_DATA, GLOBAL_POSITION_INT_DATA, GPS_RAW_INT_DATA,
-        HEARTBEAT_DATA, HOME_POSITION_DATA, PARAM_VALUE_DATA, STATUSTEXT_DATA, SYS_STATUS_DATA,
-        VFR_HUD_DATA,
+        HEARTBEAT_DATA, HOME_POSITION_DATA, LOG_ENTRY_DATA, PARAM_VALUE_DATA, STATUSTEXT_DATA,
+        SYS_STATUS_DATA, VFR_HUD_DATA,
     },
     encode, MavHeader, MavMessage, MavlinkVersion, Parser,
 };
@@ -400,6 +400,7 @@ async fn run(
                     let reply = match packet.message {
                         MavMessage::COMMAND_LONG(c) => Some(command_ack(c.command)),
                         MavMessage::COMMAND_INT(c) => Some(command_ack(c.command)),
+                        MavMessage::LOG_REQUEST_LIST(_) => Some(no_logs()),
                         MavMessage::PARAM_REQUEST_LIST(_) => {
                             tokio::spawn(stream_params(sender.clone(), params.clone()));
                             None
@@ -570,9 +571,28 @@ async fn run(
     writer.abort();
 }
 
+/// The MAVLink "no logs" answer to LOG_REQUEST_LIST: a replayed log has no onboard logs to offer.
+fn no_logs() -> MavMessage {
+    MavMessage::LOG_ENTRY(LOG_ENTRY_DATA {
+        id: 0,
+        num_logs: 0,
+        last_log_num: 0,
+        time_utc: 0,
+        size: 0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn log_list_is_answered_with_no_logs() {
+        let MavMessage::LOG_ENTRY(entry) = no_logs() else {
+            panic!("not a LOG_ENTRY");
+        };
+        assert_eq!((entry.id, entry.num_logs), (0, 0));
+    }
 
     #[test]
     fn missing_relative_path_is_returned_unchanged() {

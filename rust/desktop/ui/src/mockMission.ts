@@ -1,3 +1,7 @@
+/**
+ * Mock mission/fence/rally: in-memory upload/download round-trip, a small command catalog, .waypoints parse/save.
+ * Spread into the mock `Backend` by mockBackend.ts.
+ */
 import type { Backend, Unlisten } from "./api";
 import { browserDownload } from "./mockDownload";
 import type { MissionCommandInfo, MissionItem, MissionKind, MissionProgress } from "./types";

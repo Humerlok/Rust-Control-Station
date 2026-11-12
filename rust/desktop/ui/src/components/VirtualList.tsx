@@ -1,3 +1,7 @@
+/**
+ * Fixed-row-height virtualized list: only rows in view (plus OVERSCAN) are mounted.
+ * Props: row count, rowHeight in px, a render(index) callback and an optional className.
+ */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type Props = {
@@ -13,6 +17,7 @@ const OVERSCAN = 8;
 export function VirtualList({ count, rowHeight, render, className }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  // 600 is a guess used until the container is measured.
   const [height, setHeight] = useState(600);
 
   useEffect(() => {
@@ -25,6 +30,7 @@ export function VirtualList({ count, rowHeight, render, className }: Props) {
     return () => observer.disconnect();
   }, []);
 
+  // Visible window from scroll offset and height; rows are absolutely positioned inside a spacer of count * rowHeight.
   const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
   const last = Math.min(count, Math.ceil((scrollTop + height) / rowHeight) + OVERSCAN);
   const rows: ReactNode[] = [];

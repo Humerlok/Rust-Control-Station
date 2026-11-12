@@ -43,6 +43,33 @@ pub async fn ask_save_path(
     }
 }
 
+/// Asks the user for a file to open; `None` when the dialog was cancelled. Like the save dialog,
+/// it lives here so the webview never names a path to read: the command that calls it decides
+/// what it does with the file.
+pub async fn ask_open_path(
+    app: &AppHandle,
+    title: &str,
+    filter: Option<Filter>,
+) -> Result<Option<PathBuf>, String> {
+    let mut dialog = app.dialog().file().set_title(title);
+    if let Some(filter) = filter {
+        dialog = dialog.add_filter(filter.name, filter.extensions);
+    }
+    if let Some(window) = app.get_webview_window("main") {
+        dialog = dialog.set_parent(&window);
+    }
+    let chosen = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
+        .await
+        .map_err(|e| format!("open dialog failed: {e}"))?;
+    match chosen {
+        None => Ok(None),
+        Some(path) => path
+            .into_path()
+            .map(Some)
+            .map_err(|e| format!("invalid file: {e}")),
+    }
+}
+
 /// Writes `bytes` to `path`, reporting the path in the error.
 pub fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("failed to write {}: {e}", path.display()))

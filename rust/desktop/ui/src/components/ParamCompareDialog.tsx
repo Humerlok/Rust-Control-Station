@@ -1,3 +1,7 @@
+/**
+ * Dialog listing parameters whose value differs between the vehicle and a loaded .param file; the user picks which to apply.
+ * Props: differing rows (`value` is the number to write), count of file params missing on the vehicle, onApply, onClose.
+ */
 import { useEffect, useState } from "react";
 
 export type CompareRow = { name: string; current: string; file: string; value: number };

@@ -1,3 +1,7 @@
+/**
+ * Inline editor for one parameter: select for enumerations, bit checkboxes for bitmasks, a number field otherwise.
+ * `edit` is the pending unwritten value; out-of-range and read-only state come from the parameter metadata.
+ */
 import { useEffect, useState } from "react";
 import { formatValue, outOfRange } from "../paramUtils";
 import type { ParamEntry, ParamMeta } from "../types";
@@ -12,6 +16,7 @@ type Props = {
   onChange: (value: number | null) => void;
 };
 
+// Arithmetic instead of `&`/`>>`: JavaScript bitwise operators truncate to 32 bits.
 const bitIsSet = (value: number, bit: number) => Math.floor(value / 2 ** bit) % 2 === 1;
 
 function NumberField({ value, paramType, invalid, disabled, onChange, title }: {
@@ -22,7 +27,9 @@ function NumberField({ value, paramType, invalid, disabled, onChange, title }: {
   onChange: (value: number) => void;
   title?: string;
 }) {
+  // Local text lets the user type freely; the value is committed on blur or Enter and Escape reverts.
   const [text, setText] = useState(formatValue(value, paramType));
+  // Resync when the value changes from outside (reload, undo).
   useEffect(() => setText(formatValue(value, paramType)), [value, paramType]);
 
   const commit = () => {

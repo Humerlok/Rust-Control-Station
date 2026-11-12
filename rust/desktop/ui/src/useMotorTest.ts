@@ -1,3 +1,4 @@
+/** Motor test state via `api.motorStatus` + `api.onMotorTest`; `api.motorWatchEsc` toggles ESC telemetry streaming. */
 import { useEffect, useState } from "react";
 import { api, type Unlisten } from "./api";
 import { idleMotorTest, type MotorTestState } from "./types";
@@ -26,6 +27,7 @@ export function useMotorTest(watch: boolean): MotorTestState {
     };
   }, []);
 
+  // ESC telemetry is only requested while the screen is visible, and switched off again on leave
   useEffect(() => {
     if (!watch) return;
     api.motorWatchEsc(true).catch(() => undefined);

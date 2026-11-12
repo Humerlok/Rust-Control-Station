@@ -1,7 +1,9 @@
+/** App-wide live data: telemetry, link info and the STATUSTEXT log, from api snapshots plus onTelemetry/onLink/onStatusText events. */
 import { useCallback, useEffect, useState } from "react";
 import { api, type Unlisten } from "./api";
 import { emptyLink, emptyTelemetry, type LinkInfo, type StatusText, type Telemetry } from "./types";
 
+// Status-text history is capped so a long session does not grow memory without bound.
 const MAX_MESSAGES = 500;
 
 export function useLive() {
@@ -12,6 +14,7 @@ export function useLive() {
   useEffect(() => {
     let alive = true;
     const unlisteners: Unlisten[] = [];
+    // Listener registration is async: if the effect was already cleaned up, unlisten immediately.
     const keep = (unlisten: Unlisten) => {
       if (alive) unlisteners.push(unlisten);
       else unlisten();

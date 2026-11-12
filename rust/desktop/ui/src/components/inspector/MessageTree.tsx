@@ -1,3 +1,7 @@
+/**
+ * Left-hand pane of the inspector: pinned messages on top, then a system > component > message tree with live Hz, bytes/s and counts.
+ * While a search is active every group is shown expanded.
+ */
 import { memo } from "react";
 import type { InspectorMessage } from "../../types";
 import {
@@ -70,6 +74,7 @@ const MessageRow = memo(
       </div>
     );
   },
+  // Rows re-render only when something they display changes; snapshots arrive several times per second.
   (a, b) =>
     a.selected === b.selected &&
     a.pinned === b.pinned &&

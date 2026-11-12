@@ -1,8 +1,13 @@
+/**
+ * TypeScript mirror of the camelCase JSON the Rust backend sends (see crates/link/src/types.rs, whose tests pin
+ * the field names). Keep both sides in sync, and mockBackend.ts too.
+ */
 export type VehicleRef = { systemId: number; componentId: number };
 /** One heartbeat source on the link; `component` is the MAV_TYPE label (`QUADROTOR`, `GIMBAL`). */
 export type VehicleSummary = VehicleRef & { vehicleType: string; component: string; autopilot: boolean };
 export type GeoPoint = { lat: number; lon: number; altM: number };
 
+/** Mirrors `TelemetrySnapshot` in crates/link/src/types.rs; `fields` are the named values of vehicle-state FIELDS. */
 export type Telemetry = {
   vehicle: VehicleRef | null;
   connected: boolean;
@@ -46,6 +51,7 @@ export type SerialPortInfo = { name: string; description: string; vid?: number |
 export type FieldInfo = { key: string; label: string; unit: string; group: string };
 export type ActionInfo = { name: string; label: string; confirm: boolean; danger: boolean };
 
+/** Mirrors `ConnectionConfig` in crates/link/src/types.rs (tagged by `type`). */
 export type ConnectionConfig =
   | { type: "serial"; port: string; baud: number }
   | { type: "tcp"; host: string; port: number }
@@ -391,6 +397,96 @@ export type FlashProgress = {
   phase: string;
   done: number;
   total: number;
+  finished: boolean;
+  error: string | null;
+};
+
+// ---------------------------------------------------------------- SpeedLOG (Tools > SpeedLOG)
+// Mirrors crates/speedlog/src/types.rs.
+
+export type SpeedLogLang = "en" | "pt";
+
+export type SpeedLogInfo = {
+  fileName: string;
+  size: number;
+  firmware: string | null;
+  firmwareHash: string | null;
+  os: string | null;
+  board: string | null;
+  boardId: number | null;
+  vehicle: string;
+  tStart: number;
+  tEnd: number;
+  duration: number;
+  typeCount: number;
+  recordCount: number;
+};
+
+export type SpeedLogField = { name: string; unit: string | null; doc: string };
+
+export type SpeedLogType = {
+  /** `ATT`, or one instance such as `IMU[1]`. */
+  name: string;
+  base: string;
+  instance: string | null;
+  count: number;
+  /** False when the type has no TimeUS/TimeMS and cannot be plotted. */
+  timed: boolean;
+  doc: string;
+  fields: SpeedLogField[];
+};
+
+export type SpeedLogTrace = { type: string; field: string };
+
+export type SpeedLogStats = { min: number; max: number; mean: number };
+
+export type SpeedLogSeries = {
+  t: number[];
+  v: number[];
+  stats: SpeedLogStats | null;
+  tFirst: number | null;
+  tLast: number | null;
+};
+
+export type SpeedLogMode = { t0: number; t1: number | null; name: string; number: number; slot: number };
+
+export type SpeedLogParam = {
+  name: string;
+  value: number;
+  first: number;
+  changed: boolean;
+  title: string;
+  doc: string;
+  units: string | null;
+  range: string | null;
+  meaning: string;
+  firstMeaning: string;
+};
+
+export type SpeedLogMessage = { t: number; kind: "MSG" | "ERR" | "EV"; text: string };
+
+export type SpeedLogPreset = { id: string; fields: SpeedLogTrace[] };
+
+// Vehicle onboard logs (crates/link/src/logs.rs)
+export type LogSource = { type: "ftp"; path: string } | { type: "mavlink"; id: number };
+
+export type VehicleLogEntry = {
+  /** `00000042.BIN` over MAVFTP, `Log <id>` over LOG_*. */
+  name: string;
+  size: number;
+  /** Seconds since the Unix epoch, when the vehicle knows it. */
+  timeUtc: number | null;
+  source: LogSource;
+};
+
+export type VehicleLogProgress = {
+  op: "list" | "download";
+  name: string;
+  done: number;
+  total: number;
+  method: "ftp" | "mavlink";
+  /** Bytes per second. */
+  rate: number;
   finished: boolean;
   error: string | null;
 };

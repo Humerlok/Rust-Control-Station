@@ -1,3 +1,6 @@
+//! Tauri commands for the Motor Test screen. The safety rules (arming state, spin limits, timeouts)
+//! are enforced in `MotorTestService`, not here; state reaches the UI through the `motor-test` event.
+
 use control_station_link::{
     MotorFrame, MotorTestRequest, MotorTestService, MotorTestState, SpinParam,
 };

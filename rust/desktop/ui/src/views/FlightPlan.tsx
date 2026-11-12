@@ -1,3 +1,7 @@
+/**
+ * Flight Plan screen: edit mission, fence or rally on a map and grid, then api.missionDownload/Upload/Clear on the vehicle,
+ * or load/save QGC .waypoints files. Read over unsaved edits, Write and Clear all go through a ConfirmDialog.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Unlisten } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -27,6 +31,7 @@ import "../flightplan.css";
 import { loadSetting, saveSetting } from "../storage";
 import type { MissionCommandInfo, MissionItem, MissionKind, MissionProgress, Telemetry } from "../types";
 
+// One editor per list kind: switching the Type selector keeps each list's unsaved edits.
 type Editor = { items: MissionItem[]; dirty: boolean; selected: number | null };
 type Editors = Record<MissionKind, Editor>;
 type Dialog = { type: "read" } | { type: "write" } | { type: "clear" } | { type: "clear-editor" } | { type: "current"; index: number };
@@ -56,10 +61,11 @@ export function FlightPlan({ telemetry, notify }: Props) {
   const commands = useMemo(() => new Map(catalog.map((c) => [c.id, c])), [catalog]);
   const stats = useMemo(() => computeStats(editor.items, commands), [editor.items, commands]);
   const distance = useMemo(() => totalDistance(stats), [stats]);
+  // `wpno` is the vehicle's current mission sequence number, only meaningful for the mission list.
   const wpno = telemetry.fields.wpno;
   const currentSeq = kind === "mission" && connected && wpno !== undefined ? Math.round(wpno) : null;
 
-  // The latest values for callbacks that must stay stable between renders.
+  // The latest values for callbacks that must stay stable between renders (children are memoized on them).
   const live = useRef({ kind, catalog, defaultAlt, defaultFrame, telemetry });
   live.current = { kind, catalog, defaultAlt, defaultFrame, telemetry };
 
@@ -100,6 +106,7 @@ export function FlightPlan({ telemetry, notify }: Props) {
     };
   }, []);
 
+  // Default altitude (m) and MAVLink frame for new points persist in localStorage (frame 3 = global, relative altitude).
   useEffect(() => {
     saveSetting("plan.alt", Number(defaultAlt) || 30);
   }, [defaultAlt]);
@@ -247,6 +254,7 @@ export function FlightPlan({ telemetry, notify }: Props) {
     notify(`Read ${items.length} ${items.length === 1 ? "item" : "items"} from the vehicle`, true);
   }
 
+  // Validates before any write (also used to build the confirm dialog); returns null after notifying why not.
   function uploadItems(): MissionItem[] | null {
     let items = editor.items;
     if (hasHome(kind) && items.length === 0) {

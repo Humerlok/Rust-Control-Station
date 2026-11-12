@@ -6,6 +6,38 @@ Legacy C# Mission Planner plus the new Rust/Tauri app in `rust/`. Phases 1-6 are
 
 Checks on 2026-11-06 (Linux ARM64, Jetson): `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (298 passed, 0 failed), `npm run build` and `npm run lint` all clean. The UI build warns that one chunk is over 500 kB (harmless, code-splitting would fix it).
 
+## SpeedLOG: log plotter in Tools (branch `feature/speedlog`, 2026-11-12)
+
+SpeedLOG (github.com/Humerlok/SpeedLOG, the JS offline log viewer) rewritten in Rust and added as Tools > SpeedLOG.
+Phase 1 is the plotter plus downloading logs from the connected vehicle; **Hardware Report and PID Review (FFT,
+step response) are phases 2 and 3, not started**.
+
+- `crates/dataflash`: offset index per message id (`records_of`, `count`, `id_of`), `column(id, col)` decodes one
+  column only, `column_info(id)` gives units/multipliers from FMTU/UNIT/MULT and the `#` instance column.
+- New pure crate `crates/speedlog`: `SpeedLog::open/from_bytes` -> `info`, `tree(lang)` (instances apart, text-only
+  and empty types left out, untimed types flagged), `series` (cached; FMTU multiplier applied to raw integer
+  columns only, since `cCeEL` are already scaled by the reader), `series_view` (min/max of N buckets for a window,
+  one sample of margin, raw min/mean/max), `modes` (names from `ardupilot-meta`), `params` (first/last, changed,
+  docs and meaning of options/bitmask), `messages` (ERR/EV texts ported from SpeedLOG `i18n.js`), `presets`.
+  Descriptions are SpeedLOG's `descriptions.js` chunks at commit `ee8253d6`, imported by
+  `crates/speedlog/tools/import_descriptions.cjs`; parameter docs are embedded too (offline, no pdef download).
+- `link::LogService` (`crates/link/src/logs.rs`, tests in `crates/link/tests/logs.rs`): the LOG_ENTRY id is a list
+  position, not the file number (ArduPilot `AP_Logger_Backend::log_num_from_list_entry`: `oldest_log + list_entry - 1`,
+  wrapping at the max log count), so an FTP path is never built from it: when `/APM/LOGS` lists over MAVFTP that
+  listing is used, else LOG_REQUEST_LIST + LOG_REQUEST_DATA (gap re-requests, LOG_REQUEST_END). Shares the
+  `FtpService` of the file screen. Replay answers "no logs".
+- Desktop: `speedlog_*` commands (`speedlog_cmds.rs`, the log stays in Rust; `speedlog_open` uses a native open
+  dialog from `save_dialog.rs`), `logs_list/open/save/cancel` (`log_cmds.rs`, downloads cached in the app cache dir
+  under `vehicle-logs/`), event `logs-progress`. UI: `views/SpeedLog.tsx`, `components/speedlog/` (uPlot panels with
+  synced cursor, shared drag-zoom, mode shading, message marker, chips with window stats), `mockSpeedLog.ts`.
+- Intentional difference from SpeedLOG web: JsDataflashParser only prefixes the unit with the FMTU multiplier
+  (raw integer shown as e.g. `cm`), speedlog scales raw integer columns and shows the base unit (`m`). A side by
+  side comparison will show this on fields such as integer altitudes; it is not a regression.
+- Verified: unit tests (dataflash, speedlog incl. a synthetic log with instances/units/modes/params/ERR/EV),
+  LogService loopback tests, `?mock=1` in a browser (presets, zoom, readout, messages -> marker, vehicle logs
+  download). **Not verified**: a real `.BIN` in the Tauri app (no sample log on this machine), download from a real
+  vehicle over MAVFTP or LOG_DATA, very large logs (memory: the whole file is kept in RAM, as SpeedLOG does).
+
 ## Beta adjustments from `reajustes.md` (2026-11-09)
 
 - **Save dialogs**: MAVFTP Download, Flight Plan "Save file" and Parameters "Save to file" open a native "Save as" dialog (`tauri-plugin-dialog`, opened from Rust in `src-tauri/src/save_dialog.rs`) and write the file there. The commands are `ftp_download_save`, `mission_save_file`, `params_save_file`; each returns the saved path or `null` on cancel. They replace `ftp_download`, `mission_format_file` and `params_format_file`. The webview gets no generic "write a path" command. In `?mock=1`, saving falls back to a browser download (`mockDownload.ts`).

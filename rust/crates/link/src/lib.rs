@@ -6,6 +6,7 @@ mod dronecan_inspector;
 mod firmware;
 mod ftp;
 mod inspector;
+mod logs;
 mod manager;
 mod mission;
 mod motor_test;
@@ -30,6 +31,10 @@ pub use ftp::{
     describe_errno, FtpProgress, FtpService, FtpServiceError, FtpTiming, PARAM_PCK_PATH,
 };
 pub use inspector::{InspectorField, InspectorMessage, InspectorService, InspectorSnapshot};
+pub use logs::{
+    LogEntry, LogError, LogMethod, LogProgress, LogService, LogSource, LogTiming, LOG_DATA_LEN,
+    LOG_DIR,
+};
 pub use manager::{LinkManager, Timing};
 pub use mission::{
     MissionError, MissionKind, MissionPhase, MissionProgress, MissionService, MissionTiming,

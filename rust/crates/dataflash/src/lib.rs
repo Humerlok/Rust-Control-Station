@@ -2,7 +2,11 @@
 //!
 //! A log is a stream of records `0xA3 0x95 <msgid> <payload>`. Record layouts are described by
 //! FMT records (message id 128) that appear in the log itself, so the whole file is scanned once
-//! up front to build the format table; records are then decoded lazily.
+//! up front to build the format table and an index of record offsets per message id; records are
+//! then decoded lazily, and reading one message type touches only its own records.
+//!
+//! FMTU, UNIT and MULT records (when present) describe each column's unit, multiplier and which
+//! column is the instance number (`#`); see [`Log::column_info`].
 use std::{collections::HashMap, path::Path, sync::Arc};
 use thiserror::Error;
 
@@ -220,10 +224,24 @@ fn find_frame(
     }
 }
 
+/// Unit metadata of one message type, from its FMTU record and the UNIT/MULT tables.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ColumnInfo {
+    /// Unit label per column (`None` when unknown or dimensionless).
+    pub units: Vec<Option<String>>,
+    /// Multiplier per column (`None` when unknown or not applicable, `-`/`?`).
+    pub multipliers: Vec<Option<f64>>,
+    /// Index of the column holding the instance number (`#` in FMTU), if any.
+    pub instance_column: Option<usize>,
+}
+
 pub struct Log {
     data: Vec<u8>,
     entries: HashMap<u8, Entry>,
     formats: HashMap<u8, MessageFormat>,
+    /// Start offset of every non-FMT record, per message id, in file order.
+    offsets: HashMap<u8, Vec<usize>>,
+    columns: HashMap<u8, ColumnInfo>,
 }
 
 impl Log {
@@ -245,6 +263,7 @@ impl Log {
                     .to_vec(),
             }),
         );
+        let mut offsets: HashMap<u8, Vec<usize>> = HashMap::new();
         let mut pos = 0;
         while let Some((start, id, len)) = find_frame(&data, pos, |id| {
             entries.get(&id).map(|e: &Entry| e.format.length)
@@ -253,6 +272,8 @@ impl Log {
                 if let Some(format) = parse_fmt(&data[start + 3..start + len]) {
                     entries.insert(format.id, Entry::new(format));
                 }
+            } else {
+                offsets.entry(id).or_default().push(start);
             }
             pos = start + len;
         }
@@ -260,11 +281,136 @@ impl Log {
             .iter()
             .map(|(id, e)| (*id, e.format.clone()))
             .collect();
-        Self {
+        let mut log = Self {
             data,
             entries,
             formats,
+            offsets,
+            columns: HashMap::new(),
+        };
+        log.columns = log.read_column_info();
+        log
+    }
+
+    /// The raw size of the log in bytes.
+    pub fn size(&self) -> usize {
+        self.data.len()
+    }
+
+    /// The message id of a type name, if the log defines it.
+    pub fn id_of(&self, name: &str) -> Option<u8> {
+        self.entries
+            .iter()
+            .find(|(id, e)| **id != FMT_ID && &*e.name == name)
+            .map(|(id, _)| *id)
+    }
+
+    /// Number of records of a message id.
+    pub fn count(&self, id: u8) -> usize {
+        self.offsets.get(&id).map_or(0, Vec::len)
+    }
+
+    /// Unit metadata of a message id (`None` when the log has no FMTU for it).
+    pub fn column_info(&self, id: u8) -> Option<&ColumnInfo> {
+        self.columns.get(&id)
+    }
+
+    /// Records of one message id, in file order, read through the offset index.
+    pub fn records_of(&self, id: u8) -> impl Iterator<Item = Record> + '_ {
+        let entry = self.entries.get(&id);
+        self.offsets
+            .get(&id)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(move |start| {
+                let entry = entry?;
+                let payload = self.data.get(start + 3..start + entry.format.length)?;
+                Some(entry.decode(payload))
+            })
+    }
+
+    /// One column of every record of a message id, in file order, decoding only that column.
+    /// Empty when the id or column is unknown.
+    pub fn column(&self, id: u8, col: usize) -> Vec<Value> {
+        let Some(entry) = self.entries.get(&id) else {
+            return Vec::new();
+        };
+        let kinds = entry.format.format.as_bytes();
+        let Some(&kind) = kinds.get(col) else {
+            return Vec::new();
+        };
+        let Some(offset) = kinds[..col]
+            .iter()
+            .map(|k| char_size(*k))
+            .sum::<Option<usize>>()
+        else {
+            return Vec::new();
+        };
+        let Some(size) = char_size(kind) else {
+            return Vec::new();
+        };
+        let (from, to) = (3 + offset, 3 + offset + size);
+        if to > entry.format.length {
+            return Vec::new();
         }
+        self.offsets
+            .get(&id)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|start| self.data.get(start + from..start + to))
+            .map(|bytes| decode_value(kind, bytes))
+            .collect()
+    }
+
+    fn read_column_info(&self) -> HashMap<u8, ColumnInfo> {
+        let mut units = HashMap::new();
+        let mut mults = HashMap::new();
+        if let Some(id) = self.id_of("UNIT") {
+            for r in self.records_of(id) {
+                if let (Some(k), Some(label)) = (r.i64("Id"), r.text("Label")) {
+                    units.insert(k as u8, label.to_string());
+                }
+            }
+        }
+        if let Some(id) = self.id_of("MULT") {
+            for r in self.records_of(id) {
+                if let (Some(k), Some(m)) = (r.i64("Id"), r.f64("Mult")) {
+                    mults.insert(k as u8, m);
+                }
+            }
+        }
+        let mut out = HashMap::new();
+        let Some(fmtu) = self.id_of("FMTU") else {
+            return out;
+        };
+        for r in self.records_of(fmtu) {
+            let (Some(kind), Some(unit_ids), Some(mult_ids)) =
+                (r.i64("FmtType"), r.text("UnitIds"), r.text("MultIds"))
+            else {
+                continue;
+            };
+            let info = ColumnInfo {
+                units: unit_ids
+                    .bytes()
+                    .map(|u| match u {
+                        b'-' | b'#' | b'?' => None,
+                        _ => units.get(&u).filter(|l| !l.is_empty()).cloned(),
+                    })
+                    .collect(),
+                multipliers: mult_ids
+                    .bytes()
+                    .map(|m| match m {
+                        b'-' | b'?' => None,
+                        _ => mults.get(&m).copied(),
+                    })
+                    .collect(),
+                instance_column: unit_ids.bytes().position(|u| u == b'#'),
+            };
+            out.insert(kind as u8, info);
+        }
+        out
     }
 
     pub fn formats(&self) -> &HashMap<u8, MessageFormat> {
@@ -280,9 +426,9 @@ impl Log {
 
     /// Records of one message type, in file order. Other records are skipped without decoding.
     pub fn records_named<'a>(&'a self, name: &'a str) -> impl Iterator<Item = Record> + 'a {
-        self.frames()
-            .filter(move |(entry, _)| &*entry.name == name)
-            .map(|(entry, payload)| entry.decode(payload))
+        self.id_of(name)
+            .into_iter()
+            .flat_map(move |id| self.records_of(id))
     }
 
     fn frames(&self) -> impl Iterator<Item = (&Entry, &[u8])> + '_ {
@@ -418,6 +564,103 @@ mod tests {
         let log = Log::from_bytes(data);
         let times: Vec<_> = log.records().filter_map(|r| r.time_us()).collect();
         assert_eq!(times, [9]);
+    }
+
+    fn unit_fmts() -> Vec<u8> {
+        [
+            fmt_record(201, 3 + 8 + 1 + 64, "UNIT", "QbZ", "TimeUS,Id,Label"),
+            fmt_record(202, 3 + 8 + 1 + 8, "MULT", "Qbd", "TimeUS,Id,Mult"),
+            fmt_record(
+                203,
+                3 + 8 + 1 + 16 + 16,
+                "FMTU",
+                "QBNN",
+                "TimeUS,FmtType,UnitIds,MultIds",
+            ),
+        ]
+        .concat()
+    }
+
+    fn unit(id: u8, label: &str) -> Vec<u8> {
+        let mut out = vec![HEAD1, HEAD2, 201];
+        out.extend(0u64.to_le_bytes());
+        out.push(id);
+        out.extend(padded(label, 64));
+        out
+    }
+
+    fn mult(id: u8, m: f64) -> Vec<u8> {
+        let mut out = vec![HEAD1, HEAD2, 202];
+        out.extend(0u64.to_le_bytes());
+        out.push(id);
+        out.extend(m.to_le_bytes());
+        out
+    }
+
+    fn fmtu(kind: u8, units: &str, mults: &str) -> Vec<u8> {
+        let mut out = vec![HEAD1, HEAD2, 203];
+        out.extend(0u64.to_le_bytes());
+        out.push(kind);
+        out.extend(padded(units, 16));
+        out.extend(padded(mults, 16));
+        out
+    }
+
+    #[test]
+    fn reads_units_multipliers_and_instance_column() {
+        let data = [
+            fmt_of_fmt(),
+            tst_fmt(),
+            unit_fmts(),
+            unit(b's', "s"),
+            unit(b'm', "m"),
+            mult(b'F', 1e-6),
+            mult(b'0', 1.0),
+            fmtu(TST, "s#mm-?", "F-00--"),
+            tst_record(1, 0, 0, 0, 0, "A"),
+            tst_record(2, 1, 0, 0, 0, "B"),
+        ]
+        .concat();
+        let log = Log::from_bytes(data);
+        let id = log.id_of("TST").unwrap();
+        assert_eq!(id, TST);
+        assert_eq!(log.count(id), 2);
+        let info = log.column_info(id).unwrap();
+        assert_eq!(info.instance_column, Some(1));
+        assert_eq!(info.units[0].as_deref(), Some("s"));
+        assert_eq!(info.units[1], None);
+        assert_eq!(info.units[2].as_deref(), Some("m"));
+        assert_eq!(info.units[4], None);
+        assert_eq!(info.multipliers[0], Some(1e-6));
+        assert_eq!(info.multipliers[1], None);
+        assert_eq!(info.multipliers[2], Some(1.0));
+        let cnts: Vec<_> = log.records_of(id).filter_map(|r| r.i64("Cnt")).collect();
+        assert_eq!(cnts, [0, 1]);
+    }
+
+    #[test]
+    fn column_decodes_one_column() {
+        let log = Log::from_bytes(basic_log());
+        let pos: Vec<_> = log
+            .column(TST, 4)
+            .iter()
+            .filter_map(Value::as_f64)
+            .collect();
+        assert_eq!(pos.len(), 2);
+        assert!((pos[0] - 12.345_678_9).abs() < 1e-9);
+        assert!((pos[1] - -45.0).abs() < 1e-9);
+        assert_eq!(log.column(TST, 5)[1], Value::Text("CD".into()));
+        assert!(log.column(TST, 6).is_empty());
+        assert!(log.column(99, 0).is_empty());
+    }
+
+    #[test]
+    fn missing_fmtu_means_no_column_info() {
+        let log = Log::from_bytes(basic_log());
+        assert!(log.column_info(TST).is_none());
+        assert_eq!(log.count(TST), 2);
+        assert_eq!(log.count(99), 0);
+        assert_eq!(log.records_of(99).count(), 0);
     }
 
     #[test]

@@ -1,3 +1,7 @@
+/**
+ * Parameters screen: browse, filter, edit and write vehicle parameters. State lives in paramStore (useParams);
+ * file save/parse go through api.paramsSaveFile/paramsParseFile. Nothing is sent until Write Params.
+ */
 import { useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -8,7 +12,9 @@ import { VirtualList } from "../components/VirtualList";
 import { buildTree, formatValue, inNode, rangeText, sameValue } from "../paramUtils";
 import { paramStore, useParams } from "../useParams";
 
+// Fixed row height lets VirtualList render only the visible rows of a list with thousands of parameters.
 const ROW_HEIGHT = 30;
+// Writing more than this many edits at once asks for confirmation.
 const CONFIRM_ABOVE = 20;
 
 type Props = { notify: (text: string, ok: boolean) => void };
@@ -24,6 +30,7 @@ export function Parameters({ notify }: Props) {
   const [compare, setCompare] = useState<{ rows: CompareRow[]; missing: number } | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Which action the hidden file input was opened for: load values as edits, or compare against the vehicle.
   const fileMode = useRef<"load" | "compare">("load");
 
   const tree = useMemo(() => buildTree(p.list), [p.list]);
@@ -71,6 +78,7 @@ export function Parameters({ notify }: Props) {
     fileInput.current?.click();
   }
 
+  // Diffs a .param file against the vehicle: `load` stages the differences as edits, `compare` opens the review dialog.
   async function onFile(file: File | undefined) {
     if (!file) return;
     try {

@@ -1,3 +1,7 @@
+/**
+ * DroneCAN node parameter editor: reads all parameters of one node, edits values as text and writes only the changed ones.
+ * Props: the node, read progress, notify and onClose. Changes are not persisted on the node until saved to flash.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { DroneCanNode, NodeParam, NodeParamValue } from "../types";
@@ -9,6 +13,7 @@ type Props = {
   onClose: () => void;
 };
 
+// Display text of a value; reals use 7 significant digits to hide float noise.
 function show(value: NodeParamValue | null): string {
   if (value === null || value.type === "empty") return "—";
   if (value.type === "boolean") return value.value ? "true" : "false";
@@ -33,6 +38,7 @@ function parse(original: NodeParamValue, text: string): NodeParamValue | null {
   }
 }
 
+// Reals compare with a small tolerance to tolerate float round-trip error.
 const sameValue = (a: NodeParamValue, b: NodeParamValue) =>
   a.type === b.type && (a.type === "empty" || (a as { value: unknown }).value === (b as { value: unknown }).value ||
     (a.type === "real" && Math.abs(a.value - (b as { value: number }).value) < 1e-6));
@@ -65,6 +71,7 @@ export function NodeParamsPanel({ node, progress, notify, onClose }: Props) {
     void load();
   }, [load]);
 
+  // Edited rows that parse and actually differ from the node value.
   const changes = useMemo(() => {
     if (!params) return [];
     return params.flatMap((p) => {
@@ -88,6 +95,7 @@ export function NodeParamsPanel({ node, progress, notify, onClose }: Props) {
   async function write() {
     // *_ENABLE parameters go last, so the settings they enable are already in place.
     const ordered = [...changes].sort((a, b) => Number(/_ENABLE$/.test(a.param.name)) - Number(/_ENABLE$/.test(b.param.name)));
+    // Each write is checked against the value the node echoes back; a mismatch means the node rejected it.
     setBusy(true);
     const nextFailed: Record<string, string> = {};
     let written = 0;

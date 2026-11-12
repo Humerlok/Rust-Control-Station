@@ -1,3 +1,4 @@
+/** Top-right badge on the Flight Data map: GPS fix type, satellites and HDOP (and GPS2 when the vehicle has one). */
 import type { Telemetry } from "../types";
 
 /** MAVLink GpsFixType, in enum order. */

@@ -13,7 +13,6 @@ rust/desktop/ui/dist/
 /.vscode
 /.idea
 /.claude/settings.local.json
-/CLAUDE.md
 
 # Flight logs and telemetry samples (large, never commit)
 /exemplos/

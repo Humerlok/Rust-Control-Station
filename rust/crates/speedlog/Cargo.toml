@@ -1,0 +1,15 @@
+[package]
+name = "control-station-speedlog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SpeedLOG: DataFlash log analysis for the plotter (index, series, modes, parameters, messages, docs)"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+flate2 = "1.1"
+control-station-dataflash = { path = "../dataflash" }
+control-station-ardupilot-meta = { path = "../ardupilot-meta" }
+control-station-params = { path = "../params" }

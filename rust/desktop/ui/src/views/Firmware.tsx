@@ -1,3 +1,7 @@
+/**
+ * Firmware screen: load an official .apj (api.firmwareCatalog/Builds/LoadUrl) or a local one, identify the board in its
+ * bootloader over serial, then flash with progress events. Flash is blocked on board mismatch and needs a danger confirmation.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -12,6 +16,7 @@ const CHANNELS = [
   { id: "BETA", label: "Beta" },
   { id: "DEV", label: "Latest dev" },
 ];
+// Labels for the backend's flash progress phases (FlashProgress.phase).
 const PHASES: Record<string, string> = {
   sync: "Syncing with the bootloader",
   identify: "Reading the board",
@@ -25,6 +30,7 @@ const PHASES: Record<string, string> = {
 // A board id that matches, or fmuv2 firmware on a board that reports 33 (same rule as the backend).
 const compatible = (board: number, firmware: number) => board === firmware || (board === 33 && firmware === 9);
 
+// Chunked so String.fromCharCode does not overflow the call stack on large images.
 function toBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let text = "";
@@ -74,7 +80,7 @@ export function Firmware({ connected, notify }: Props) {
     void refreshPorts();
   }, []);
 
-  // Builds for the chosen board, vehicle and channel (needs the catalog first).
+  // Builds for the chosen board, vehicle and channel (needs the catalog first); `stale` drops late replies after a change.
   useEffect(() => {
     if (!boards || boardId === null) {
       setBuilds([]);
@@ -92,6 +98,7 @@ export function Firmware({ connected, notify }: Props) {
     };
   }, [boards, boardId, vehicle, channel]);
 
+  // Runs one backend action at a time: `busy` names it (disables the other buttons) and errors land in `error`.
   async function run<T>(label: string, action: () => Promise<T>): Promise<T | undefined> {
     setBusy(label);
     setError(null);
@@ -137,6 +144,7 @@ export function Firmware({ connected, notify }: Props) {
     });
     if (done) {
       notify("Rebooting into the bootloader. Pick the new serial port and identify the board.", true);
+      // give the board time to re-enumerate as a bootloader serial port
       setTimeout(() => void refreshPorts(), 3000);
     }
   };
@@ -153,6 +161,7 @@ export function Firmware({ connected, notify }: Props) {
     }
   };
 
+  // Flashing is blocked unless the identified board matches the firmware's board id.
   const mismatch = loaded && board ? !compatible(board.boardId, loaded.boardId) : false;
   const canFlash = !!loaded && !!board && !mismatch && !busy && port !== "";
   const selectedBuild = useMemo(() => builds.find((b) => b.url === buildUrl), [builds, buildUrl]);

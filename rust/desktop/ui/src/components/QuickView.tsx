@@ -1,11 +1,17 @@
+/**
+ * Flight Data grid of numeric telemetry tiles; double-click a tile to choose which field it shows.
+ * Layout (cols 1-8, rows 1-4, field keys) is persisted under the localStorage key "quick.layout"; `fields` maps field key to value.
+ */
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { loadSetting, saveSetting } from "../storage";
 import type { FieldInfo } from "../types";
 import { QuickPicker } from "./QuickPicker";
 
+// Defaults, plus fallbacks used to fill tiles when the grid grows.
 const DEFAULT_KEYS = ["alt", "groundspeed", "wp_dist", "yaw", "verticalspeed", "dist_to_home"];
 const FALLBACK_KEYS = ["battery_voltage", "satcount", "throttle", "roll", "pitch", "airspeed", "altasl", "heading", "battery_current", "gpshdop"];
+// Decimals per field key; other keys use 0 if they match INTEGER_KEY, otherwise 1. Latitude/longitude need 7 (1e-7 deg).
 const DECIMALS: Record<string, number> = {
   yaw: 0,
   heading: 0,
@@ -49,6 +55,7 @@ type Layout = { cols: number; rows: number; keys: string[] };
 
 const KEY = "quick.layout";
 
+// Makes keys.length match cols * rows, filling with unused default/fallback keys.
 function normalize(layout: Layout): Layout {
   const count = layout.cols * layout.rows;
   const keys = [...layout.keys];

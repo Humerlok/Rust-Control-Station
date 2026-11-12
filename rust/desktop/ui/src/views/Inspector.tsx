@@ -1,3 +1,7 @@
+/**
+ * Inspector screen: message tree, field detail and graph for any InspectorSource (MAVLink here, DroneCAN via DroneCan.tsx).
+ * Live data comes from useInspector; sort, collapsed and pinned keys persist in localStorage under `storagePrefix`.
+ */
 import { useCallback, useMemo, useState } from "react";
 import { GraphPanel } from "../components/inspector/GraphPanel";
 import {
@@ -43,6 +47,7 @@ export function InspectorPanel({
   emptyText = "Connect to a vehicle to see MAVLink traffic.",
   storagePrefix = "inspector",
 }: PanelProps) {
+  // Remembered per inspector in localStorage: collapsed tree nodes, pinned messages and sort mode.
   const COLLAPSED_KEY = `${storagePrefix}.collapsed`;
   const PINNED_KEY = `${storagePrefix}.pinned`;
   const SORT_KEY = `${storagePrefix}.sort`;
@@ -85,7 +90,7 @@ export function InspectorPanel({
     [watched, names],
   );
 
-  // Without an explicit choice, show the first message in the tree.
+  // Without an explicit choice (or if the chosen message vanished), show the first message in the tree.
   const firstKey = pinnedMessages[0]
     ? messageKey(pinnedMessages[0])
     : groups[0]?.components[0]?.messages[0]

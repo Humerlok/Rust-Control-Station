@@ -1,3 +1,4 @@
+/** Tiny localStorage wrapper for UI preferences; never throws, falls back to the default when storage is unavailable. */
 export function loadSetting<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);

@@ -1,3 +1,7 @@
+/**
+ * Collapsible tree of parameter groups (prefix hierarchy); selecting a node filters the table, null means all parameters.
+ * Expansion state is local to this component.
+ */
 import { useState } from "react";
 import type { TreeNode } from "../paramUtils";
 
@@ -8,6 +12,7 @@ type Props = {
   onSelect: (key: string | null) => void;
 };
 
+// One tree level, indented 14 px per depth.
 function Branch({ node, depth, selected, expanded, toggle, onSelect }: {
   node: TreeNode;
   depth: number;

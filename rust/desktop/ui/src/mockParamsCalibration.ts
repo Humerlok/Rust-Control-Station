@@ -1,3 +1,7 @@
+/**
+ * Mock parameters (download, set, file parse/save) and calibration flows for the browser-only backend.
+ * Spread into the mock `Backend` by mockBackend.ts; `reset()` runs on connect and disconnect.
+ */
 import type { Backend, Unlisten } from "./api";
 import { browserDownload } from "./mockDownload";
 import { initialMetadata, initialParams } from "./mockParams";
@@ -16,7 +20,7 @@ type Context = {
   emitStatus: (severity: number, text: string) => void;
 };
 
-type Phase2 = Pick<
+type ParamsCalibrationMock = Pick<
   Backend,
   | "paramsRefresh"
   | "paramsList"
@@ -37,13 +41,14 @@ type Phase2 = Pick<
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const ACCEL_POSITIONS = ["Level", "Left", "Right", "Nose down", "Nose up", "Back"];
+// Parameters skipped when loading a .param file, like the real backend does.
 const FILE_BLACKLIST = /^(SYSID_SW_MREV|WP_TOTAL|CMD_TOTAL|FENCE_TOTAL|SYS_NUM_RESETS|ARSPD_OFFSET|GND_ABS_PRESS|GND_TEMP|BARO\d?_GND_PRESS|BARO_GND_TEMP|CMD_INDEX|LOG_LASTFILE|FORMAT_VERSION)$/;
 
 function formatNumber(value: number): string {
   return String(Number(value.toPrecision(7)));
 }
 
-export function createPhase2Mock({ isConnected, isArmed, emitStatus }: Context): Phase2 {
+export function createParamsCalibrationMock({ isConnected, isArmed, emitStatus }: Context): ParamsCalibrationMock {
   const progressListeners = new Set<(p: ParamsProgress) => void>();
   const calibrationListeners = new Set<(c: CalibrationState) => void>();
   const metadata: Record<string, ParamMeta> = initialMetadata();
@@ -118,7 +123,7 @@ export function createPhase2Mock({ isConnected, isArmed, emitStatus }: Context):
     }, 200);
   }
 
-  const params: Phase2 = {
+  const params: ParamsCalibrationMock = {
     reset() {
       table = [];
       loaded = false;

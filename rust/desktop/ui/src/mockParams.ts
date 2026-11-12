@@ -1,6 +1,7 @@
+/**
+ * Deterministic fake Copter parameter table and metadata (the pdef info) used by mockParamsCalibration.ts.
+ */
 import type { ParamEntry, ParamMeta } from "./types";
-
-// Deterministic fake Copter parameter table + metadata for the browser mock backend.
 
 type Seed = [name: string, value: number, type?: string];
 

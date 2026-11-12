@@ -1,3 +1,7 @@
+/**
+ * Mock Motor Test: enforces connected/armed rules, simulates spinning motors and fake ESC telemetry.
+ * Spread into the mock `Backend` by mockBackend.ts.
+ */
 import type { Backend, Unlisten } from "./api";
 import { idleMotorTest, type EscReading, type MotorFrame, type MotorSlot, type MotorTestRequest, type MotorTestState } from "./types";
 
@@ -21,6 +25,7 @@ type MotorMock = Pick<
 >;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Throttle above this needs `allowHigh` (user confirmation), as in the real MotorTestService.
 const HIGH_PERCENT = 20;
 
 function slots(rows: Array<[number, number, string]>): MotorSlot[] {
@@ -51,6 +56,7 @@ export function createMotorMock({ isConnected, isArmed, emitStatus }: Context): 
   function escs(): EscReading[] {
     return Object.entries(spinning).map(([motor, percent]) => ({
       index: Number(motor),
+      // Fake readings: RPM roughly proportional to throttle, plus noise.
       rpm: Math.round(percent * 95 + Math.random() * 20),
       voltage: 22.1 - percent * 0.02,
       current: percent * 0.35,

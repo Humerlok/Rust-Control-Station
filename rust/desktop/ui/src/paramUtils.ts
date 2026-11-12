@@ -1,3 +1,4 @@
+/** Pure helpers for parameter values, metadata ranges and the name-prefix tree used by the Parameters screen. */
 import type { ParamEntry, ParamMeta } from "./types";
 
 const INTEGER_TYPES = new Set(["INT8", "UINT8", "INT16", "UINT16", "INT32", "UINT32", "INT64", "UINT64"]);
@@ -18,6 +19,7 @@ export function sameValue(a: number, b: number): boolean {
   return Math.fround(a) === Math.fround(b);
 }
 
+/** Natural order: `SERVO2_MIN` sorts before `SERVO10_MIN`. */
 export function naturalCompare(a: string, b: string): number {
   return a.localeCompare(b, "en", { numeric: true });
 }

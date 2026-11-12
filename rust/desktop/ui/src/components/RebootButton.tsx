@@ -1,3 +1,4 @@
+/** Reboots the autopilot after a confirmation; the dialog escalates to a danger tone when the vehicle is armed. */
 import { useState } from "react";
 import { api } from "../api";
 import { ConfirmDialog } from "./ConfirmDialog";

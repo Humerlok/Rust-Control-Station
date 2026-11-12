@@ -1,3 +1,5 @@
+//! AUTO connection: probes serial ports and bauds until one of them speaks MAVLink.
+
 use std::time::Duration;
 
 use control_station_mavlink::Parser;
@@ -39,6 +41,7 @@ pub async fn scan_serial() -> Result<Connection, LinkError> {
         .map_err(|_| LinkError::Other("serial scan timed out".into()))?
 }
 
+/// True as soon as one valid MAVLink packet arrives within `PROBE_TIME`.
 async fn hears_mavlink(connection: &mut Connection) -> bool {
     let listen = async {
         let mut parser = Parser::new();

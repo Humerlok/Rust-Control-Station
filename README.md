@@ -14,7 +14,8 @@ Installers for Windows and Linux (x86_64 and ARM64) are published in [Releases](
 
 ## Development
 
-See [rust/README.md](rust/README.md) and [HANDOFF.md](HANDOFF.md) (state of each phase, what is verified on hardware).
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (how the code is organised and how to add a feature), then
+[rust/README.md](rust/README.md) and [HANDOFF.md](HANDOFF.md) (state of each phase, what is verified on hardware).
 
 ```
 cd rust

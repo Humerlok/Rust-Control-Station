@@ -1,3 +1,7 @@
+/**
+ * "Display This" dialog: searchable, grouped list of Quick View fields. Double-click or Apply picks one.
+ * Props: field catalog from the backend, current key, onPick, onCancel.
+ */
 import { useMemo, useState } from "react";
 import type { FieldInfo } from "../types";
 

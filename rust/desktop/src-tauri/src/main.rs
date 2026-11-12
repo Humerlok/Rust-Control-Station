@@ -1,3 +1,13 @@
+//! Thin Tauri shell: every `#[tauri::command]` only translates a UI request into a call on the
+//! domain crates (`LinkManager` and the services in `control_station_link`) and turns errors into
+//! strings. No protocol logic belongs here.
+//!
+//! Layout: the link-level commands (connect, arm, mode, ...) are in this file; each feature has its
+//! own `*_cmds.rs`. `main()` creates the services, registers them as Tauri state and spawns small
+//! pump tasks that forward service events to the UI (`emit("telemetry" | "ftp-progress" | ...)`).
+//! The UI side of these names is `ui/src/api.ts`; new events also need a grant in
+//! `capabilities/default.json`.
+
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod calibration_cmds;
@@ -5,18 +15,20 @@ mod dronecan_cmds;
 mod firmware_cmds;
 mod ftp_cmds;
 mod inspector_cmds;
+mod log_cmds;
 mod mission_cmds;
 mod motor_cmds;
 mod params_cmds;
 mod save_dialog;
+mod speedlog_cmds;
 
 use std::sync::Arc;
 
 use control_station_commands::{ActionInfo, ACTIONS};
 use control_station_link::{
     CalibrationService, ConnectionConfig, DroneCanService, FirmwareService, FtpService,
-    InspectorService, LinkEvent, LinkInfo, LinkManager, MissionService, MotorTestService,
-    ParamService, ParamWriter, TelemetrySnapshot,
+    InspectorService, LinkEvent, LinkInfo, LinkManager, LogService, MissionService,
+    MotorTestService, ParamService, ParamWriter, TelemetrySnapshot,
 };
 use control_station_transport as transport;
 use control_station_vehicle_state::{FieldInfo, VehicleId, FIELDS};
@@ -24,6 +36,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use tokio::sync::broadcast::error::RecvError;
 
+/// Tauri state for the link itself; each service is registered as its own state in `main()`.
 struct AppState {
     link: LinkManager,
 }
@@ -36,6 +49,7 @@ struct SerialPortDto {
     pid: Option<u16>,
 }
 
+/// Tauri commands return `Result<_, String>`; the UI shows the text as is.
 fn text<T>(result: Result<T, control_station_link::LinkError>) -> Result<T, String> {
     result.map_err(|e| e.to_string())
 }
@@ -152,6 +166,7 @@ async fn set_home_here(
 }
 
 fn main() {
+    // One shared link; every service gets a clone (cheap, it is an `Arc` inside).
     let link = LinkManager::new();
     let mut events = link.subscribe();
     let params_link = link.clone();
@@ -159,6 +174,7 @@ fn main() {
     let inspector_link = link.clone();
     let mission_link = link.clone();
     let ftp_link = link.clone();
+    let logs_link = link.clone();
     let firmware_link = link.clone();
     let motor_link = link.clone();
     let dronecan_link = link.clone();
@@ -167,6 +183,10 @@ fn main() {
         .manage(AppState { link })
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Pattern repeated below for every service: create it, `app.manage` it so commands can
+            // take it as `State<_>`, then spawn a task that forwards its broadcast events to the UI
+            // (lagged receivers just skip ahead; a closed channel ends the task).
 
             let cache_dir = app
                 .path()
@@ -177,6 +197,26 @@ fn main() {
             let ftp = FtpService::new(ftp_link);
             let mut ftp_progress = ftp.subscribe_progress();
             app.manage(ftp.clone());
+
+            // Onboard logs (SpeedLOG): shares the MAVFTP client so the two never run sessions at once.
+            let logs = LogService::new(logs_link).with_ftp(ftp.clone());
+            let mut logs_progress = logs.subscribe_progress();
+            app.manage(logs);
+            let logs_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    match logs_progress.recv().await {
+                        Ok(p) => {
+                            if let Err(error) = logs_handle.emit("logs-progress", p) {
+                                eprintln!("failed to emit logs-progress: {error}");
+                            }
+                        }
+                        Err(RecvError::Lagged(_)) => continue,
+                        Err(RecvError::Closed) => break,
+                    }
+                }
+            });
+
             let ftp_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -197,6 +237,7 @@ fn main() {
             let mut flash_progress = firmware.subscribe_progress();
             app.manage(firmware);
             app.manage(firmware_cmds::FirmwareState::default());
+            app.manage(speedlog_cmds::SpeedLogState::default());
             let flash_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
@@ -459,6 +500,19 @@ fn main() {
             firmware_cmds::firmware_reboot_bootloader,
             firmware_cmds::firmware_identify,
             firmware_cmds::firmware_flash,
+            speedlog_cmds::speedlog_open,
+            speedlog_cmds::speedlog_close,
+            speedlog_cmds::speedlog_info,
+            speedlog_cmds::speedlog_tree,
+            speedlog_cmds::speedlog_series,
+            speedlog_cmds::speedlog_modes,
+            speedlog_cmds::speedlog_params,
+            speedlog_cmds::speedlog_messages,
+            speedlog_cmds::speedlog_presets,
+            log_cmds::logs_list,
+            log_cmds::logs_cancel,
+            log_cmds::logs_open,
+            log_cmds::logs_save,
             firmware_cmds::firmware_cancel
         ])
         .run(tauri::generate_context!())

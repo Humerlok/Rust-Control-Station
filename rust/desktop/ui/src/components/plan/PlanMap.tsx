@@ -1,3 +1,7 @@
+/**
+ * Mission planning map: numbered draggable waypoint pins, route polyline (closed for fences), vehicle marker and a context menu.
+ * Click adds a point, right-click opens the menu, dragging a pin moves it; the home pin is fixed. Reuses the "map.base" setting.
+ */
 import L, { type LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -21,9 +25,11 @@ const BASE_LAYERS = {
 } as const;
 type BaseKey = keyof typeof BASE_LAYERS;
 
+// Approximate context-menu size in px, used to keep the menu inside the map.
 const MENU_WIDTH = 190;
 const MENU_HEIGHT = 150;
 
+// DivIcons are cached per label/state so markers do not rebuild their DOM on every render.
 const pinCache = new Map<string, L.DivIcon>();
 function pinIcon(label: string, flags: { current: boolean; selected: boolean; home: boolean }): L.DivIcon {
   const key = `${label}|${flags.current}|${flags.selected}|${flags.home}`;
@@ -57,6 +63,7 @@ type BehaviorProps = {
   onDismiss: () => void;
 };
 
+// Imperative Leaflet behaviour: resize, initial view, fit and focus requests, click and context events.
 function MapBehavior({ fallback, points, fitSignal, focus, focusPoint, menuOpen, onAdd, onContext, onDismiss }: BehaviorProps) {
   const map = useMap();
   const placed = useRef(false);
@@ -64,6 +71,7 @@ function MapBehavior({ fallback, points, fitSignal, focus, focusPoint, menuOpen,
   pointsRef.current = points;
 
   useEffect(() => {
+    // Leaflet does not notice container resizes, so re-measure.
     const observer = new ResizeObserver(() => map.invalidateSize());
     observer.observe(map.getContainer());
     return () => observer.disconnect();
@@ -154,6 +162,7 @@ export function PlanMap(props: Props) {
   const vIcon = useMemo(() => vehicleIcon(heading), [heading]);
   const focusItem = focus ? items[focus.index] : undefined;
   const focusPoint: LatLngTuple | null = focusItem ? [focusItem.x, focusItem.y] : null;
+  // A fence polygon is drawn closed once it has three vertices.
   const closeFence = kind === "fence" && points.length >= 3;
 
   function chooseBase(next: BaseKey) {
@@ -164,6 +173,7 @@ export function PlanMap(props: Props) {
   const layer = BASE_LAYERS[base];
   const menuLeft = menu ? Math.max(0, Math.min(menu.x, (wrapRef.current?.clientWidth ?? Infinity) - MENU_WIDTH)) : 0;
   const menuTop = menu ? Math.max(0, Math.min(menu.y, (wrapRef.current?.clientHeight ?? Infinity) - MENU_HEIGHT)) : 0;
+  // First editable index: mission item 0 is the fixed home.
   const free = kind === "mission" ? 1 : 0;
 
   function run(action: () => void) {

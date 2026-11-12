@@ -1,3 +1,7 @@
+/**
+ * Fake `Backend` for the UI-only loop (`npm run dev`, open `/?mock=1`): simulates a copter circling a point.
+ * Chosen in api.ts; basic commands live here, other areas are spread in from the mock*.ts factories.
+ */
 import type { Backend, Unlisten } from "./api";
 import type {
   ActionInfo,
@@ -10,12 +14,14 @@ import type {
 import { emptyLink, emptyTelemetry } from "./types";
 import { createInspectorMock } from "./mockInspector";
 import { createFirmwareMock } from "./mockFirmware";
+import { createSpeedLogMock } from "./mockSpeedLog";
 import { createFtpMock } from "./mockFtp";
 import { createMissionMock } from "./mockMission";
 import { createDroneCanMock } from "./mockDroneCan";
 import { createMotorMock } from "./mockMotor";
-import { createPhase2Mock } from "./mockPhase2";
+import { createParamsCalibrationMock } from "./mockParamsCalibration";
 
+// Simulated circle: centre of the flight path and its radius in degrees of latitude.
 const CENTER = { lat: -21.92, lon: -47.93 };
 const RADIUS_DEG = 0.0012;
 const MODES = ["Stabilize", "Acro", "AltHold", "Auto", "Guided", "Loiter", "RTL", "Circle", "Land", "PosHold", "Brake", "Smart_RTL"];
@@ -90,6 +96,7 @@ export function createMockBackend(): Backend {
 
   function buildTelemetry(): Telemetry {
     if (!connected) return emptyTelemetry;
+    // `t` advances 0.1 per 100 ms tick; `a` is the angle around the circle.
     const a = t * 0.15;
     const lat = CENTER.lat + RADIUS_DEG * Math.sin(a);
     const lon = CENTER.lon + (RADIUS_DEG * Math.cos(a)) / Math.cos((CENTER.lat * Math.PI) / 180);
@@ -170,6 +177,7 @@ export function createMockBackend(): Backend {
   }
 
   let messageIndex = 0;
+  // 10 Hz telemetry; link stats and a rotating STATUSTEXT every 2.5 s.
   setInterval(() => {
     t += 0.1;
     packets += 6;
@@ -192,7 +200,8 @@ export function createMockBackend(): Backend {
     if (!connected) throw "no vehicle connected";
   }
 
-  const phase2 = createPhase2Mock({ isConnected: () => connected, isArmed: () => armed, emitStatus });
+  // Params and calibration come from mockParamsCalibration.ts; DroneCAN is spread below but also needs a reset on (dis)connect.
+  const paramsCal = createParamsCalibrationMock({ isConnected: () => connected, isArmed: () => armed, emitStatus });
   const { reset: resetDroneCan, ...dronecan } = createDroneCanMock({ isConnected: () => connected });
 
   async function command(label: string): Promise<string> {
@@ -218,7 +227,7 @@ export function createMockBackend(): Backend {
     ],
     async connect(config: ConnectionConfig) {
       if (config.type === "replay" && config.path.trim() === "") throw "replay file path is empty";
-      phase2.reset();
+      paramsCal.reset();
       resetDroneCan();
       connecting = true;
       connected = false;
@@ -233,7 +242,7 @@ export function createMockBackend(): Backend {
     async disconnect() {
       connected = false;
       connecting = false;
-      phase2.reset();
+      paramsCal.reset();
       resetDroneCan();
       emitLink();
     },
@@ -279,29 +288,30 @@ export function createMockBackend(): Backend {
     takeoff: (altitudeM) => command(`Takeoff to ${altitudeM} m`),
     flyTo: () => command("Fly to here"),
     setHomeHere: () => command("Set home here"),
-    paramsRefresh: phase2.paramsRefresh,
-    paramsList: phase2.paramsList,
-    paramSet: phase2.paramSet,
-    paramsMetadata: phase2.paramsMetadata,
-    paramsParseFile: phase2.paramsParseFile,
-    paramsSaveFile: phase2.paramsSaveFile,
-    calibrationStart: phase2.calibrationStart,
-    calibrationAccelConfirm: phase2.calibrationAccelConfirm,
-    calibrationCompassAccept: phase2.calibrationCompassAccept,
-    calibrationCompassCancel: phase2.calibrationCompassCancel,
-    calibrationCancel: phase2.calibrationCancel,
-    radioCalibrationFinish: phase2.radioCalibrationFinish,
-    calibrationStatus: phase2.calibrationStatus,
+    paramsRefresh: paramsCal.paramsRefresh,
+    paramsList: paramsCal.paramsList,
+    paramSet: paramsCal.paramSet,
+    paramsMetadata: paramsCal.paramsMetadata,
+    paramsParseFile: paramsCal.paramsParseFile,
+    paramsSaveFile: paramsCal.paramsSaveFile,
+    calibrationStart: paramsCal.calibrationStart,
+    calibrationAccelConfirm: paramsCal.calibrationAccelConfirm,
+    calibrationCompassAccept: paramsCal.calibrationCompassAccept,
+    calibrationCompassCancel: paramsCal.calibrationCompassCancel,
+    calibrationCancel: paramsCal.calibrationCancel,
+    radioCalibrationFinish: paramsCal.radioCalibrationFinish,
+    calibrationStatus: paramsCal.calibrationStatus,
     onTelemetry: subscribe(listeners.telemetry),
     onStatusText: subscribe(listeners.statustext),
     onLink: subscribe(listeners.link),
-    onParamsProgress: phase2.onParamsProgress,
-    onCalibration: phase2.onCalibration,
+    onParamsProgress: paramsCal.onParamsProgress,
+    onCalibration: paramsCal.onCalibration,
     ...dronecan,
     ...createMotorMock({ isConnected: () => connected, isArmed: () => armed, emitStatus }),
     ...createInspectorMock(),
     ...createMissionMock(),
     ...createFtpMock(),
     ...createFirmwareMock(),
+    ...createSpeedLogMock(),
   };
 }

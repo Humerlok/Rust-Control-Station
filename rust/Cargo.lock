@@ -411,6 +411,7 @@ dependencies = [
  "control-station-link",
  "control-station-mission",
  "control-station-params",
+ "control-station-speedlog",
  "control-station-transport",
  "control-station-vehicle-state",
  "serde",
@@ -500,6 +501,19 @@ dependencies = [
 name = "control-station-params"
 version = "0.3.0"
 dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "control-station-speedlog"
+version = "0.3.0"
+dependencies = [
+ "control-station-ardupilot-meta",
+ "control-station-dataflash",
+ "control-station-params",
+ "flate2",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

@@ -1,3 +1,7 @@
+/**
+ * Shared parameter store: list, metadata, pending edits and favorites (favorites persist in localStorage).
+ * Uses api.paramsList/paramsRefresh/paramsMetadata/paramSet and the params-progress event; App feeds it the connection state.
+ */
 import { useSyncExternalStore } from "react";
 import { api } from "./api";
 import { isEnableName, naturalCompare, sameValue } from "./paramUtils";
@@ -34,6 +38,7 @@ let vehicleKey: string | null = null;
 /** The selection changed while a download was running: download again once it ends. */
 let switchPending = false;
 
+// Module-level store (not React state) so edits and the downloaded list survive screen switches; read via `useParams`.
 let state: ParamState = {
   list: [],
   byName: new Map(),
@@ -67,6 +72,7 @@ function setList(list: ParamEntry[]) {
   update({ list: sorted, byName: new Map(sorted.map((entry) => [entry.name, entry])) });
 }
 
+// Subscribes once to download progress, however the download was started.
 function ensureInit() {
   if (initialized) return;
   initialized = true;
@@ -98,6 +104,7 @@ async function loadMetadata(): Promise<void> {
   }
 }
 
+// Full download. If the user switches vehicle meanwhile, `switchPending` discards this result and restarts.
 async function refresh(): Promise<void> {
   if (state.refreshing) return;
   update({ refreshing: true, refreshError: null, progress: { received: 0, total: 0, done: false, error: null } });
@@ -137,6 +144,7 @@ function setConnection(linkConnected: boolean, vehicleAlive: boolean, vehicleTyp
   ensureInit();
   const wasConnected = state.linkConnected;
   update({ vehicleAlive, vehicleType });
+  // Called by App on every link/vehicle change; decides between first load, vehicle switch and disconnect.
   // Another vehicle/component selected on the same link: its parameters are a different set
   // (like the legacy planner, download them again).
   const switched = linkConnected && wasConnected && selected !== null && vehicleKey !== null && selected !== vehicleKey;
