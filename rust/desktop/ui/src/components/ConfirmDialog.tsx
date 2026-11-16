@@ -1,5 +1,5 @@
 /**
- * Modal confirmation used before risky commands. Escape or a click on the backdrop cancels; the confirm button has focus.
+ * Modal confirmation used before risky commands. Escape or a click on the backdrop cancels; the confirm button has focus, except for tone "danger", where Cancel has focus so Enter does not run the command.
  * `tone` colours the dialog (warn/danger); `children` renders extra controls between the message and the buttons.
  */
 import { useEffect, type ReactNode } from "react";
@@ -35,6 +35,7 @@ export function ConfirmDialog({
   }, [onCancel]);
 
   const confirmClass = tone === "danger" ? "danger" : "primary";
+  const focusCancel = tone === "danger";
   return (
     <div className="modal-back" onMouseDown={onCancel}>
       <div
@@ -48,8 +49,8 @@ export function ConfirmDialog({
         {message && <p>{message}</p>}
         {children}
         <div className="buttons">
-          <button onClick={onCancel}>{cancelLabel}</button>
-          <button className={confirmClass} onClick={onConfirm} autoFocus>
+          <button onClick={onCancel} autoFocus={focusCancel}>{cancelLabel}</button>
+          <button className={confirmClass} onClick={onConfirm} autoFocus={!focusCancel}>
             {confirmLabel}
           </button>
         </div>

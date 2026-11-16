@@ -36,6 +36,11 @@ export function ActionsPanel({ telemetry }: Props) {
       .catch(() => setActions([]));
   }, []);
 
+  // A result from a previous connection is stale: clear it when the link goes up or down.
+  useEffect(() => {
+    setResult(null);
+  }, [telemetry.connected]);
+
   const enabled = telemetry.connected && !busy;
   const mode = modeChoice || telemetry.mode || "";
   const selectedAction = actions.find((a) => a.name === actionName);
@@ -174,7 +179,7 @@ export function ActionsPanel({ telemetry }: Props) {
       {pending?.kind === "disarm" && (
         <ConfirmDialog
           title="Disarm motors?"
-          tone="warn"
+          tone={telemetry.fields.alt > 2 ? "danger" : "warn"}
           message={telemetry.fields.alt > 2 ? "The vehicle appears to be flying. Disarming in flight will drop it." : "Motors will be disarmed."}
           confirmLabel="Disarm"
           onConfirm={disarm}
@@ -195,8 +200,8 @@ export function ActionsPanel({ telemetry }: Props) {
         <ConfirmDialog
           title={`${pending.action.label}?`}
           tone={pending.action.danger ? "danger" : "warn"}
-          message="Are you sure?"
-          confirmLabel="Do it"
+          message={`"${pending.action.label}" will be sent to the vehicle now.${pending.action.danger ? " This cannot be undone." : ""}`}
+          confirmLabel={pending.action.label}
           onConfirm={() => confirmAction(pending.action)}
           onCancel={() => setPending(null)}
         />
