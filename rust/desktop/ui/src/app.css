@@ -69,10 +69,12 @@
 .gps-badge .gps-fix.bad { color: var(--nord11); }
 .gps-badge .gps-fix.good { color: var(--nord14); }
 .gps-badge .gps-fix.rtk { color: var(--nord13); }
-.hud { position: absolute; box-sizing: border-box; z-index: 650; padding: 8px; background: rgba(46, 52, 64, 0.8); border: 1px solid var(--border); border-radius: var(--radius); pointer-events: none; }
+.hud { position: absolute; box-sizing: border-box; z-index: 650; padding: 8px; background: rgba(46, 52, 64, 0.8); border: 1px solid var(--border); border-radius: var(--radius); pointer-events: none; container-type: inline-size; }
+.hud.offline svg { opacity: 0.35; }
 .hud-badges { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 4px; }
-.hud-type { font-size: 11px; align-self: center; }
-.hud-mode { margin-top: 4px; padding: 2px 6px; text-align: center; font-size: 20px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-strong); border-radius: var(--radius); transition: background-color 0.3s, color 0.3s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-type { font-size: clamp(11px, 5.2cqw, 20px); align-self: center; }
+.hud .badge { font-size: clamp(11px, 5.2cqw, 20px); }
+.hud-mode { margin-top: 4px; padding: 2px 6px; text-align: center; font-size: clamp(20px, 9.5cqw, 44px); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-strong); border-radius: var(--radius); transition: background-color 0.3s, color 0.3s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud-mode.changed { color: #fff; background: var(--nord11); }
 .message-banner { position: absolute; left: 236px; right: 12px; bottom: 28px; z-index: 600; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
 .banner-msg { pointer-events: auto; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: var(--radius); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.25); }
@@ -85,7 +87,8 @@
 .banner-close { padding: 0 6px; min-width: 0; line-height: 1.2; background: transparent; border: none; color: inherit; font-size: 16px; cursor: pointer; }
 .banner-close:hover { background: rgba(0, 0, 0, 0.2); }
 .banner-more { pointer-events: none; padding: 2px 8px; border-radius: var(--radius); font-size: 12px; color: var(--text-strong); background: rgba(46, 52, 64, 0.85); }
-.hud-readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 4px; font-size: 11px; color: var(--text-strong); }
+.hud-readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin-top: 4px; font-size: clamp(11px, 5.2cqw, 22px); color: var(--text-strong); }
+.hud-bat { grid-column: 1 / -1; }
 
 .quick-controls { display: flex; align-items: center; gap: 10px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
 .quick-controls .spacer { flex: 1; }

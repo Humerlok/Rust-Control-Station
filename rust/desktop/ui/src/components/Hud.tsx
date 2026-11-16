@@ -35,10 +35,12 @@ function HeadingTape({ heading }: { heading: number }) {
   return (
     <svg viewBox="0 0 200 30" width="100%" aria-label="Heading tape">
       {ticks}
-      <path d="M100 0 L95 6 L105 6 Z" fill="var(--nord13)" />
+      <path d="M100 7 L95 0 L105 0 Z" fill="var(--nord13)" />
     </svg>
   );
 }
+
+const ROLL_TICKS = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
 
 function Horizon({ roll, pitch }: { roll: number; pitch: number }) {
   const ladder: JSX.Element[] = [];
@@ -54,6 +56,22 @@ function Horizon({ roll, pitch }: { roll: number; pitch: number }) {
       </g>,
     );
   }
+  // Fixed scale outside the ring (not clipped, not rotated) so the roll pointer can be read in degrees.
+  const rollTicks = ROLL_TICKS.map((deg) => {
+    const rad = (deg * Math.PI) / 180;
+    const outer = deg % 30 === 0 ? 99 : 96;
+    return (
+      <line
+        key={deg}
+        x1={100 + 92 * Math.sin(rad)}
+        y1={100 - 92 * Math.cos(rad)}
+        x2={100 + outer * Math.sin(rad)}
+        y2={100 - outer * Math.cos(rad)}
+        stroke="var(--nord4)"
+        strokeWidth={1.5}
+      />
+    );
+  });
   return (
     <svg viewBox="0 0 200 200" width="100%" aria-label="Artificial horizon">
       <defs>
@@ -70,8 +88,9 @@ function Horizon({ roll, pitch }: { roll: number; pitch: number }) {
         </g>
       </g>
       <circle cx={100} cy={100} r={92} fill="none" stroke="var(--nord4)" strokeWidth={2} />
+      {rollTicks}
       <g transform={`rotate(${-roll} 100 100)`}>
-        <path d="M100 8 L94 -2 L106 -2 Z" fill="var(--nord13)" transform="translate(0 6)" />
+        <path d="M100 10 L95 20 L105 20 Z" fill="var(--nord13)" />
       </g>
       <path d="M62 100 H88 M112 100 H138 M100 100 m-3 0 a3 3 0 1 0 6 0 a3 3 0 1 0 -6 0" stroke="var(--nord13)" strokeWidth={3} fill="none" />
     </svg>
@@ -191,7 +210,7 @@ export function Hud({ telemetry }: { telemetry: Telemetry }) {
   };
 
   return (
-    <div className="hud" ref={rootRef} aria-label="Heads-up display" style={{ left: layout.x, bottom: layout.b, width: layout.w }}>
+    <div className={live ? "hud" : "hud offline"} ref={rootRef} aria-label="Heads-up display" style={{ left: layout.x, bottom: layout.b, width: layout.w }}>
       <div
         className="hud-badges hud-handle"
         title="Drag to move the HUD, double-click to reset"
@@ -211,13 +230,13 @@ export function Hud({ telemetry }: { telemetry: Telemetry }) {
       </div>
       <div className="hud-readouts mono">
         <span>
-          HDG {fmt(heading)}° {CARDINALS[Math.round(heading / 45) % 8]}
+          {live ? `HDG ${fmt(heading)}° ${CARDINALS[Math.round(heading / 45) % 8]}` : "HDG —"}
         </span>
         <span>GS {fmt(f.groundspeed, 1)} m/s</span>
         <span>ALT {fmt(f.alt, 1)} m</span>
-        <span>
-          BAT {fmt(f.battery_voltage, 1)} V {fmt(f.battery_current, 1)} A{" "}
-          {f.battery_remaining !== undefined ? `${fmt(f.battery_remaining)}%` : ""}
+        <span className="hud-bat">
+          BAT {fmt(f.battery_voltage, 1)} V · {fmt(f.battery_current, 1)} A
+          {f.battery_remaining !== undefined ? ` · ${fmt(f.battery_remaining)}%` : ""}
         </span>
       </div>
       <div
