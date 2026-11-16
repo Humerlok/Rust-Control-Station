@@ -30,10 +30,8 @@ export function commandName(id: number, commands: CommandMap): string {
   return commands.get(id)?.name ?? `CMD ${id}`;
 }
 
-export function defaultCommand(kind: MissionKind, catalog: MissionCommandInfo[]): number {
-  const wanted = kind === "fence" ? CMD_FENCE_VERTEX : kind === "rally" ? CMD_RALLY_POINT : CMD_WAYPOINT;
-  if (catalog.some((c) => c.id === wanted)) return wanted;
-  return kind === "mission" ? CMD_WAYPOINT : (catalog[0]?.id ?? wanted);
+export function defaultCommand(kind: MissionKind): number {
+  return kind === "fence" ? CMD_FENCE_VERTEX : kind === "rally" ? CMD_RALLY_POINT : CMD_WAYPOINT;
 }
 
 export function makeItem(partial: Partial<MissionItem> & Pick<MissionItem, "command" | "x" | "y" | "z" | "frame">): MissionItem {

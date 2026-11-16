@@ -27,8 +27,10 @@ function NumCell({
   disabled,
   invalid,
   title,
+  label,
   onCommit,
 }: {
+  label: string;
   value: number;
   decimals: number;
   disabled?: boolean;
@@ -51,6 +53,7 @@ function NumCell({
     <input
       className={`cell-num ${bad ? "bad" : ""}`}
       value={text}
+      aria-label={label}
       disabled={disabled}
       title={bad ? "Invalid value" : title}
       inputMode="decimal"
@@ -94,8 +97,17 @@ const PlanRow = memo(function PlanRow(p: RowProps) {
   const known = p.catalog.some((c) => c.id === item.command);
   const frameKnown = FRAME_OPTIONS.some((f) => f.value === item.frame);
 
-  const param = (field: "param1" | "param2" | "param3" | "param4", label: string | null | undefined) => (
-    <NumCell value={item[field]} decimals={4} disabled={!used(label)} onCommit={(v) => p.onPatch(index, { [field]: v })} />
+  const who = home ? "home" : `item ${index}`;
+  const aria = (label: string | null | undefined, fallback: string) => `${label ?? fallback} of ${who}`;
+
+  const param = (field: "param1" | "param2" | "param3" | "param4", label: string | null | undefined, fallback: string) => (
+    <NumCell
+      label={aria(label, fallback)}
+      value={item[field]}
+      decimals={4}
+      disabled={!used(label)}
+      onCommit={(v) => p.onPatch(index, { [field]: v })}
+    />
   );
 
   return (
@@ -107,7 +119,7 @@ const PlanRow = memo(function PlanRow(p: RowProps) {
       {home ? (
         <span className="home-label">Home</span>
       ) : (
-        <select value={item.command} onChange={(event) => p.onPatch(index, { command: Number(event.target.value) })}>
+        <select aria-label={`Command of ${who}`} value={item.command} onChange={(event) => p.onPatch(index, { command: Number(event.target.value) })}>
           {!known && <option value={item.command}>CMD {item.command}</option>}
           {p.catalog.map((c) => (
             <option key={c.id} value={c.id}>
@@ -116,17 +128,17 @@ const PlanRow = memo(function PlanRow(p: RowProps) {
           ))}
         </select>
       )}
-      {param("param1", info?.p1)}
-      {param("param2", info?.p2)}
-      {param("param3", info?.p3)}
-      {param("param4", info?.p4)}
-      <NumCell value={item.x} decimals={7} disabled={!used(info?.x)} invalid={(v) => !validLat(v)} onCommit={(v) => p.onPatch(index, { x: v })} />
-      <NumCell value={item.y} decimals={7} disabled={!used(info?.y)} invalid={(v) => !validLon(v)} onCommit={(v) => p.onPatch(index, { y: v })} />
-      <NumCell value={item.z} decimals={2} disabled={!used(info?.z)} onCommit={(v) => p.onPatch(index, { z: v })} />
+      {param("param1", info?.p1, "P1")}
+      {param("param2", info?.p2, "P2")}
+      {param("param3", info?.p3, "P3")}
+      {param("param4", info?.p4, "P4")}
+      <NumCell label={aria(info?.x, "Lat")} value={item.x} decimals={7} disabled={!used(info?.x)} invalid={(v) => !validLat(v)} onCommit={(v) => p.onPatch(index, { x: v })} />
+      <NumCell label={aria(info?.y, "Lon")} value={item.y} decimals={7} disabled={!used(info?.y)} invalid={(v) => !validLon(v)} onCommit={(v) => p.onPatch(index, { y: v })} />
+      <NumCell label={aria(info?.z, "Alt")} value={item.z} decimals={2} disabled={!used(info?.z)} onCommit={(v) => p.onPatch(index, { z: v })} />
       {home ? (
         <span className="home-label">{frameLabel(0)}</span>
       ) : (
-        <select value={item.frame} onChange={(event) => p.onPatch(index, { frame: Number(event.target.value) })}>
+        <select aria-label={`Frame of ${who}`} value={item.frame} onChange={(event) => p.onPatch(index, { frame: Number(event.target.value) })}>
           {!frameKnown && <option value={item.frame}>Frame {item.frame}</option>}
           {FRAME_OPTIONS.map((f) => (
             <option key={f.value} value={f.value}>
@@ -195,28 +207,33 @@ export function PlanGrid({ kind, items, catalog, commands, stats, selected, curr
           No items. Click the map to add a point, or Read the {KIND_LABELS[kind].toLowerCase()} from the vehicle.
         </p>
       ) : (
-        <VirtualList
-          count={items.length}
-          rowHeight={ROW_HEIGHT}
-          className="plan-list"
-          render={(i) => (
-            <PlanRow
-              kind={kind}
-              index={i}
-              item={items[i]}
-              info={commands.get(items[i].command)}
-              catalog={catalog}
-              stats={stats[i]}
-              selected={selected === i}
-              current={currentSeq === i}
-              last={i === items.length - 1}
-              onSelect={onSelect}
-              onPatch={onPatch}
-              onMove={onMove}
-              onDelete={onDelete}
-            />
+        <>
+          <VirtualList
+            count={items.length}
+            rowHeight={ROW_HEIGHT}
+            className="plan-list"
+            render={(i) => (
+              <PlanRow
+                kind={kind}
+                index={i}
+                item={items[i]}
+                info={commands.get(items[i].command)}
+                catalog={catalog}
+                stats={stats[i]}
+                selected={selected === i}
+                current={currentSeq === i}
+                last={i === items.length - 1}
+                onSelect={onSelect}
+                onPatch={onPatch}
+                onMove={onMove}
+                onDelete={onDelete}
+              />
+            )}
+          />
+          {hasHome(kind) && items.length === 1 && (
+            <p className="plan-empty dim">Click the map to add waypoints, or Read the mission from the vehicle.</p>
           )}
-        />
+        </>
       )}
     </div>
   );

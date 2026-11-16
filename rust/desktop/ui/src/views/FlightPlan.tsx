@@ -129,10 +129,10 @@ export function FlightPlan({ telemetry, notify }: Props) {
   }, [missionEmpty, telemetry.home, telemetry.position, mutate]);
 
   const newPointDefaults = useCallback(() => {
-    const { kind: k, catalog: list, defaultAlt: alt, defaultFrame: frame } = live.current;
+    const { kind: k, defaultAlt: alt, defaultFrame: frame } = live.current;
     const altitude = Number(alt);
     return {
-      command: defaultCommand(k, list),
+      command: defaultCommand(k),
       z: Number.isFinite(altitude) ? altitude : 30,
       // Fence and rally points are always global.
       frame: k === "mission" ? frame : 0,

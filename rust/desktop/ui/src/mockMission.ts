@@ -56,8 +56,6 @@ const CATALOG: MissionCommandInfo[] = [
   cmd(178, "DO_CHANGE_SPEED", "Change the speed.", { p1: "Type", p2: "Speed (m/s)", p3: "Throttle %" }),
   cmd(181, "DO_SET_RELAY", "Switch a relay.", { p1: "Relay #", p2: "On/Off" }),
   cmd(183, "DO_SET_SERVO", "Move a servo.", { p1: "Ch #", p2: "PWM" }),
-  cmd(5001, "FENCE_POLYGON_VERTEX_INCLUSION", "Vertex of an inclusion fence.", { p1: "Vertex count", x: "Lat", y: "Lon" }),
-  cmd(5100, "RALLY_POINT", "Rally point.", POS),
 ];
 
 const wp = (seq: number, command: number, dLat: number, dLon: number, z: number, p1 = 0): MissionItem => ({
