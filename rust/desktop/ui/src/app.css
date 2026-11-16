@@ -83,7 +83,7 @@
 .hud .badge { font-size: clamp(11px, 5.2cqw, 20px); }
 .hud-mode { margin-top: 4px; padding: 2px 6px; text-align: center; font-size: clamp(20px, 9.5cqw, 44px); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-strong); border-radius: var(--radius); transition: background-color 0.3s, color 0.3s; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hud-mode.changed { color: #fff; background: var(--nord11); }
-.message-banner { position: absolute; left: 236px; right: 12px; bottom: 28px; z-index: 600; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
+.message-banner { position: absolute; left: 236px; right: 54px; bottom: 28px; z-index: 700; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: none; }
 .banner-msg { pointer-events: auto; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 6px 6px 12px; border-radius: var(--radius); font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 0, 0, 0.25); }
 .banner-msg.critical { background: var(--nord11); color: #fff; }
 .banner-msg.error { background: var(--nord12); color: var(--nord0); }

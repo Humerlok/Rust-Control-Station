@@ -5,7 +5,7 @@
 import L, { type LatLngExpression, type LatLngTuple } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents, ZoomControl } from "react-leaflet";
 import { api } from "../api";
 import { loadSetting, saveSetting } from "../storage";
 import type { Telemetry } from "../types";
@@ -167,9 +167,17 @@ export function FlightMap({ telemetry, notify }: Props) {
 
   return (
     <div className="map-wrap" ref={wrapRef}>
-      <MapContainer center={center} zoom={3} minZoom={2} maxZoom={19} zoomControl worldCopyJump className="map">
+      <MapContainer center={center} zoom={3} minZoom={2} maxZoom={19} zoomControl={false} worldCopyJump className="map">
+        {/* Bottom right so the HUD (bottom left by default) never covers the zoom buttons. */}
+        <ZoomControl position="bottomright" />
         <TileLayer key={base} url={layer.url} attribution={layer.attribution} maxZoom={19} />
-        {track.length > 1 && <Polyline positions={track} pathOptions={{ color: "#ebcb8b", weight: 3 }} />}
+        {track.length > 1 && (
+          <>
+            {/* Dark casing under the yellow line keeps the track readable on the light Streets map. */}
+            <Polyline positions={track} pathOptions={{ color: "#2e3440", weight: 6, opacity: 0.55 }} />
+            <Polyline positions={track} pathOptions={{ color: "#ebcb8b", weight: 3 }} />
+          </>
+        )}
         {home && <Marker position={home} icon={homeIcon} interactive={false} />}
         {position && <Marker position={position} icon={icon} interactive={false} />}
         <MapBehavior
