@@ -70,6 +70,8 @@ pub struct SeriesView {
     /// Full time extent of the series (seconds), independent of the window.
     pub t_first: Option<f64>,
     pub t_last: Option<f64>,
+    /// True when `t`/`v` are min/max buckets, so other samples exist between the returned points.
+    pub reduced: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -189,9 +191,11 @@ mod tests {
             stats: None,
             t_first: None,
             t_last: None,
+            reduced: false,
         };
         let v = serde_json::to_value(s).unwrap();
         assert!(v.get("tFirst").is_some());
+        assert_eq!(v["reduced"], false);
 
         assert_eq!(
             serde_json::from_value::<Lang>(json!("pt")).unwrap(),

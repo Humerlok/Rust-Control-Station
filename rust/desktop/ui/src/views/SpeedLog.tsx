@@ -46,6 +46,7 @@ export function SpeedLog({ active, connected, notify }: Props) {
   const [activeId, setActiveId] = useState<number>(() => panels[0].id);
   const [range, setRange] = useState<[number, number] | null>(null);
   const [marker, setMarker] = useState<number | null>(null);
+  const [measure, setMeasure] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
   const [tab, setTab] = useState<Tab>("plot");
   const [busy, setBusy] = useState<string | null>(null);
   const [lang, setLang] = useState<SpeedLogLang>(() => loadSetting<SpeedLogLang>("speedlog.lang", "en"));
@@ -73,12 +74,19 @@ export function SpeedLog({ active, connected, notify }: Props) {
     return out;
   }, [types]);
 
+  // Current window and the zoom history (Backspace goes back one step).
+  const rangeRef = useRef<[number, number] | null>(null);
+  rangeRef.current = range;
+  const history = useRef<Array<[number, number] | null>>([]);
+
   /** A log was opened (from disk or from the vehicle): reset the view and load what the plotter needs. */
   const loaded = useCallback(
     async (next: SpeedLogInfo) => {
       setInfo(next);
       setRange(null);
+      history.current = [];
       setMarker(null);
+      setMeasure({ a: null, b: null });
       setParams(null);
       setMessages(null);
       const first = newPanel();
@@ -210,8 +218,14 @@ export function SpeedLog({ active, connected, notify }: Props) {
       return next;
     });
 
-  const zoom = (next: [number, number]) => setRange(next);
-  const resetZoom = () => setRange(null);
+  const zoom = (next: [number, number]) => {
+    history.current.push(rangeRef.current);
+    setRange(next);
+  };
+  const resetZoom = () => {
+    history.current = [];
+    setRange(null);
+  };
 
   const pickMessage = (t: number) => {
     setMarker(t);
@@ -259,12 +273,32 @@ export function SpeedLog({ active, connected, notify }: Props) {
         case "S":
           setSidebar((v) => !v);
           break;
+        case "Escape":
+          setMeasure({ a: null, b: null });
+          break;
+        case "Backspace":
+          if (history.current.length > 0) {
+            e.preventDefault();
+            setRange(history.current.pop() ?? null);
+          }
+          break;
+        case "ArrowLeft":
+        case "ArrowRight": {
+          const r = rangeRef.current;
+          if (!r) break;
+          e.preventDefault();
+          const w = r[1] - r[0];
+          let d = (e.key === "ArrowLeft" ? -1 : 1) * w * (e.shiftKey ? 0.5 : 0.1);
+          d = Math.max(span[0] - r[0], Math.min(span[1] - r[1], d));
+          setRange([r[0] + d, r[1] + d]);
+          break;
+        }
         default:
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [active, info, addPanel]);
+  }, [active, info, addPanel, span]);
 
   return (
     <div className="sl-view">
@@ -299,8 +333,7 @@ export function SpeedLog({ active, connected, notify }: Props) {
                 </button>
               ))}
             </div>
-            {tab === "plot" && (
-              <>
+            <div className={tab === "plot" ? "sl-plot-tools" : "sl-plot-tools hidden"}>
                 <button onClick={() => addPanel()} title="Add a panel (P)">
                   + Panel
                 </button>
@@ -332,8 +365,12 @@ export function SpeedLog({ active, connected, notify }: Props) {
                     Clear marker
                   </button>
                 )}
-              </>
-            )}
+                {(measure.a !== null || measure.b !== null) && (
+                  <button onClick={() => setMeasure({ a: null, b: null })} title="Remove the A/B measurement (Esc)">
+                    Clear A/B
+                  </button>
+                )}
+            </div>
           </>
         )}
         <button onClick={() => setLang((l) => (l === "en" ? "pt" : "en"))} title="Language of the descriptions and decoded messages">
@@ -347,7 +384,8 @@ export function SpeedLog({ active, connected, notify }: Props) {
           <p>Offline viewer for ArduPilot DataFlash (.bin) logs. Nothing is plotted until you pick it.</p>
           <p className="dim">
             Open a log from disk, or download one from the connected vehicle. Then tick fields in the sidebar, drag on a plot to
-            zoom (all panels follow) and double click to go back. Shortcuts: <kbd>/</kbd> search, <kbd>P</kbd> new panel,{" "}
+            zoom (all panels follow), double click to reset, Backspace to go back one zoom, arrows to pan, wheel (or Ctrl+wheel) to
+            zoom; click sets A, Shift+click sets B, Esc clears. Shortcuts: <kbd>/</kbd> search, <kbd>P</kbd> new panel,{" "}
             <kbd>M</kbd> modes, <kbd>R</kbd> reset zoom, <kbd>S</kbd> sidebar.
           </p>
           <div className="sl-empty-actions">
@@ -382,7 +420,7 @@ export function SpeedLog({ active, connected, notify }: Props) {
               <FieldTree ref={searchRef} types={types} active={activeKeys} plotted={plottedKeys} showDocs={showDocs} onToggle={toggleTrace} />
             </aside>
           )}
-          <div className="sl-panels" ref={panelsRef}>
+          <div className="sl-panels" ref={panelsRef} style={{ "--sl-count": panels.length } as React.CSSProperties}>
             {!sidebar && (
               <button className="sl-side-show" onClick={() => setSidebar(true)} title="Show the field sidebar (S)">
                 › Fields
@@ -410,6 +448,9 @@ export function SpeedLog({ active, connected, notify }: Props) {
                 modes={modes}
                 showModes={showModes}
                 marker={marker}
+                measure={measure}
+                onMeasure={(t, which) => setMeasure((m) => ({ ...m, [which]: t }))}
+                onWheelZoom={setRange}
                 onActivate={() => setActiveId(panel.id)}
                 onRemoveTrace={(trace) =>
                   updatePanel(panel.id, (p) => ({ ...p, traces: p.traces.filter((t) => traceKey(t) !== traceKey(trace)) }))

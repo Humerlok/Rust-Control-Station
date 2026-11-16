@@ -446,9 +446,11 @@ export type SpeedLogSeries = {
   stats: SpeedLogStats | null;
   tFirst: number | null;
   tLast: number | null;
+  /** True when the points are min/max buckets (other samples are hidden between them). */
+  reduced: boolean;
 };
 
-export type SpeedLogMode = { t0: number; t1: number | null; name: string; number: number; slot: number };
+export type SpeedLogMode= { t0: number; t1: number | null; name: string; number: number; slot: number };
 
 export type SpeedLogParam = {
   name: string;

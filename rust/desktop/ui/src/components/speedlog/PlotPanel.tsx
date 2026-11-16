@@ -29,6 +29,10 @@ type Props = {
   modes: SpeedLogMode[];
   showModes: boolean;
   marker: number | null;
+  measure: { a: number | null; b: number | null };
+  onMeasure: (t: number, which: "a" | "b") => void;
+  /** Wheel zoom (not added to the zoom history). */
+  onWheelZoom: (range: [number, number] | null) => void;
   onActivate: () => void;
   onRemoveTrace: (trace: SpeedLogTrace) => void;
   onZoom: (range: [number, number]) => void;
@@ -56,7 +60,7 @@ function valueNear(values: ArrayLike<number | null | undefined>, idx: number): n
 }
 
 export function PlotPanel(props: Props) {
-  const { panel, index, count, active, range, span, units, modes, showModes, marker } = props;
+  const { panel, index, count, active, range, span, units, modes, showModes, marker, measure } = props;
   const hostRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
   const readoutRefs = useRef<Array<HTMLSpanElement | null>>([]);
@@ -64,6 +68,11 @@ export function PlotPanel(props: Props) {
   const [stats, setStats] = useState<Array<SpeedLogStats | null>>([]);
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  // Per trace: the points are min/max buckets, so other samples hide between them.
+  const reducedRef = useRef<boolean[]>([]);
+  const [reduced, setReduced] = useState<boolean[]>([]);
+  // A/B measurement: value change of every trace between the two markers.
+  const [deltas, setDeltas] = useState<Array<number | null>>([]);
 
   // Latest values for the uPlot callbacks, which are created once per set of traces.
   const xRange = useRef<[number, number]>(range ?? span);
@@ -71,11 +80,33 @@ export function PlotPanel(props: Props) {
   const live = useRef(props);
   live.current = props;
 
-  const signature = panel.traces.map(traceKey).join("|");
+  // Units are part of the signature: the plot is rebuilt (one Y axis per unit) when they load.
+  const signature = panel.traces.map((t) => `${traceKey(t)}@${units[traceKey(t)] ?? ""}`).join("|");
+  const unitList = useMemo(() => [...new Set(panel.traces.map((t) => units[traceKey(t)] ?? ""))], [panel.traces, units]);
   const yUnits = useMemo(() => {
     const list = [...new Set(panel.traces.map((t) => units[traceKey(t)]).filter((u): u is string => !!u))];
     return list.join(", ");
   }, [panel.traces, units]);
+
+  /** Value change between A and B for every trace; null when a marker is outside the loaded window. */
+  const computeDeltas = (): Array<number | null> => {
+    const u = plotRef.current;
+    const { a, b } = live.current.measure;
+    if (!u || a === null || b === null) return [];
+    const x = u.data[0];
+    const inside = (t: number) => x.length > 0 && t >= x[0] && t <= x[x.length - 1];
+    const out: Array<number | null> = [];
+    for (let i = 1; i < u.data.length; i += 1) {
+      if (!inside(a) || !inside(b)) {
+        out.push(null);
+        continue;
+      }
+      const va = valueNear(u.data[i], u.valToIdx(a));
+      const vb = valueNear(u.data[i], u.valToIdx(b));
+      out.push(va === null || vb === null ? null : vb - va);
+    }
+    return out;
+  };
 
   // Build the plot when the set of traces changes.
   useEffect(() => {
@@ -83,6 +114,7 @@ export function PlotPanel(props: Props) {
     if (!host || panel.traces.length === 0) return;
     const text = cssColor("--text-dim", "#9aa5b8");
     const grid = "rgba(76, 86, 106, 0.55)";
+    const dual = unitList.length === 2;
     const options: uPlot.Options = {
       width: Math.max(host.clientWidth, 100),
       height: Math.max(host.clientHeight, 80),
@@ -101,15 +133,34 @@ export function PlotPanel(props: Props) {
           stroke: text,
           grid: { stroke: grid, width: 1 },
           ticks: { stroke: grid, width: 1 },
-          values: (_u, splits) => splits.map((v) => formatTime(v)),
+          values: (_u, splits) => {
+            const visible = xRange.current[1] - xRange.current[0];
+            const digits = visible > 60 ? 1 : visible > 5 ? 2 : 3;
+            return splits.map((v) => formatTime(v, digits));
+          },
         },
         {
           stroke: text,
           grid: { stroke: grid, width: 1 },
           ticks: { stroke: grid, width: 1 },
           size: 60,
+          label: dual && unitList[0] ? unitList[0] : undefined,
           values: (_u, splits) => splits.map((v) => formatValue(v)),
         },
+        ...(dual
+          ? [
+              {
+                scale: "y2",
+                side: 1 as const,
+                stroke: text,
+                grid: { show: false },
+                ticks: { stroke: grid, width: 1 },
+                size: 60,
+                label: unitList[1] || undefined,
+                values: (_u: uPlot, splits: number[]) => splits.map((v) => formatValue(v)),
+              },
+            ]
+          : []),
       ],
       series: [
         {},
@@ -119,7 +170,8 @@ export function PlotPanel(props: Props) {
           width: 1.4,
           dash: traceDash(i),
           spanGaps: true,
-          points: { show: false },
+          scale: dual && (units[traceKey(trace)] ?? "") === unitList[1] ? "y2" : "y",
+          points: { show: (u: uPlot, _sidx: number, i0: number, i1: number) => i1 - i0 < u.bbox.width / (10 * (window.devicePixelRatio || 1)), size: 4 },
         })),
       ],
       hooks: {
@@ -173,12 +225,33 @@ export function PlotPanel(props: Props) {
                 ctx.stroke();
               }
             }
+            const marks: Array<[number | null, string, string]> = [
+              [p.measure.a, "A", cssColor("--nord8", "#88c0d0")],
+              [p.measure.b, "B", cssColor("--nord15", "#b48ead")],
+            ];
+            for (const [t, letter, color] of marks) {
+              if (t === null) continue;
+              const x = u.valToPos(t, "x", true);
+              if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) continue;
+              ctx.strokeStyle = color;
+              ctx.fillStyle = color;
+              ctx.lineWidth = 1.5 * ratio;
+              ctx.setLineDash([]);
+              ctx.beginPath();
+              ctx.moveTo(x, u.bbox.top);
+              ctx.lineTo(x, u.bbox.top + u.bbox.height);
+              ctx.stroke();
+              ctx.font = `bold ${11 * ratio}px ${cssColor("--font", "sans-serif")}`;
+              ctx.textBaseline = "top";
+              ctx.fillText(letter, x + 3 * ratio, u.bbox.top + 3 * ratio);
+            }
             ctx.restore();
           },
         ],
         setSelect: [
           (u) => {
-            if (u.select.width > 4) {
+            // Only the plot the user dragged on reports the zoom (the hook fires on every synced plot).
+            if (u.cursor.event != null && u.select.width > 4) {
               const a = u.posToVal(u.select.left, "x");
               const b = u.posToVal(u.select.left + u.select.width, "x");
               if (b > a) live.current.onZoom([a, b]);
@@ -190,12 +263,14 @@ export function PlotPanel(props: Props) {
           (u) => {
             const idx = u.cursor.idx;
             const time = idx === null || idx === undefined ? null : u.data[0][idx];
-            if (timeRef.current) timeRef.current.textContent = time === null || time === undefined ? "" : formatTime(time);
+            if (timeRef.current) {
+              timeRef.current.textContent = time === null || time === undefined ? "" : `t = ${formatTime(time, 3)}`;
+            }
             for (let i = 1; i < u.data.length; i += 1) {
               const el = readoutRefs.current[i - 1];
               if (!el) continue;
               const value = idx === null || idx === undefined ? null : valueNear(u.data[i], idx);
-              el.textContent = value === null ? "" : formatValue(value);
+              el.textContent = value === null ? "" : `${reducedRef.current[i - 1] ? "≈ " : ""}${formatValue(value)}`;
             }
           },
         ],
@@ -203,8 +278,44 @@ export function PlotPanel(props: Props) {
     };
     const plot = new uPlot(options, [[], ...panel.traces.map(() => [])], host);
     plotRef.current = plot;
-    const onDouble = () => live.current.onReset();
+    let downX: number | null = null;
+    let clickTimer: number | undefined;
+    const onDown = (e: MouseEvent) => {
+      if (e.button === 0) downX = e.clientX;
+    };
+    const onUp = (e: MouseEvent) => {
+      if (e.button !== 0 || downX === null || Math.abs(e.clientX - downX) >= 4) return;
+      const idx = plot.cursor.idx;
+      if (idx == null) return;
+      const t = plot.data[0][idx];
+      if (t == null) return;
+      const which = e.shiftKey ? "b" : "a";
+      window.clearTimeout(clickTimer);
+      // Deferred so a double click (reset zoom) does not also set A.
+      clickTimer = window.setTimeout(() => live.current.onMeasure(t, which), 250);
+    };
+    const onDouble = () => {
+      window.clearTimeout(clickTimer);
+      live.current.onReset();
+    };
+    const onWheel = (e: WheelEvent) => {
+      const list = host.closest(".sl-panels");
+      const scrollable = !!list && list.scrollHeight > list.clientHeight + 1;
+      if (!e.ctrlKey && scrollable) return; // let the panel list scroll
+      e.preventDefault();
+      const rect = plot.over.getBoundingClientRect();
+      const t = plot.posToVal(e.clientX - rect.left, "x");
+      const [x0, x1] = xRange.current;
+      const f = e.deltaY < 0 ? 0.8 : 1.25;
+      const [s0, s1] = live.current.span;
+      const a = Math.max(s0, t - (t - x0) * f);
+      const b = Math.min(s1, t + (x1 - t) * f);
+      live.current.onWheelZoom(a <= s0 && b >= s1 ? null : [a, b]);
+    };
+    plot.over.addEventListener("mousedown", onDown);
+    plot.over.addEventListener("mouseup", onUp);
     plot.over.addEventListener("dblclick", onDouble);
+    plot.over.addEventListener("wheel", onWheel, { passive: false });
     const observer = new ResizeObserver(() => {
       if (host.clientWidth > 0 && host.clientHeight > 0) {
         plot.setSize({ width: host.clientWidth, height: host.clientHeight });
@@ -213,7 +324,11 @@ export function PlotPanel(props: Props) {
     observer.observe(host);
     return () => {
       observer.disconnect();
+      window.clearTimeout(clickTimer);
+      plot.over.removeEventListener("mousedown", onDown);
+      plot.over.removeEventListener("mouseup", onUp);
       plot.over.removeEventListener("dblclick", onDouble);
+      plot.over.removeEventListener("wheel", onWheel);
       plot.destroy();
       plotRef.current = null;
     };
@@ -238,7 +353,10 @@ export function PlotPanel(props: Props) {
         const data: uPlot.AlignedData =
           tables.length === 1 ? tables[0] : uPlot.join(tables as uPlot.AlignedData[]);
         plot?.setData(data);
+        setDeltas(computeDeltas());
         setStats(result.map((s) => s?.stats ?? null));
+        reducedRef.current = result.map((s) => s?.reduced ?? false);
+        setReduced(reducedRef.current);
         setMissing(panel.traces.filter((_, i) => !result[i]).map(traceKey));
       } catch (error) {
         if (!cancelled) live.current.notify(`Could not read the traces: ${String(error)}`, false);
@@ -256,7 +374,11 @@ export function PlotPanel(props: Props) {
   // Overlays (modes, marker) only need a redraw.
   useEffect(() => {
     plotRef.current?.redraw(false, false);
-  }, [showModes, modes, marker]);
+  }, [showModes, modes, marker, measure.a, measure.b]);
+
+  useEffect(() => {
+    setDeltas(computeDeltas());
+  }, [measure.a, measure.b]);
 
   return (
     <section
@@ -267,9 +389,19 @@ export function PlotPanel(props: Props) {
       <header>
         <div className="sl-panel-title">
           <span className="sl-panel-name">Panel {index + 1}</span>
-          {yUnits && <span className="dim sl-panel-units">{yUnits}</span>}
+          {unitList.length >= 3 ? (
+            <span className="warn-text sl-panel-units">mixed units: use + Panel</span>
+          ) : (
+            yUnits && <span className="dim sl-panel-units">{yUnits}</span>
+          )}
           {loading && <span className="dim sl-panel-loading">loading…</span>}
-          <span className="mono dim sl-panel-time" ref={timeRef} />
+          <span className="mono sl-panel-time" ref={timeRef} />
+          {measure.a !== null && measure.b !== null && (
+            <span className="mono sl-panel-time">
+              {`Δt = ${(measure.b - measure.a).toFixed(3)} s`}
+              {measure.b !== measure.a && ` (${(1 / Math.abs(measure.b - measure.a)).toFixed(3)} Hz)`}
+            </span>
+          )}
         </div>
         <div className="sl-panel-tools">
           <button title="Move up" aria-label="Move panel up" disabled={index === 0} onClick={() => props.onMove(-1)}>
@@ -292,7 +424,11 @@ export function PlotPanel(props: Props) {
             const key = traceKey(trace);
             const st = stats[i];
             return (
-              <li key={key} className={missing.includes(key) ? "missing" : ""}>
+              <li
+                key={key}
+                className={missing.includes(key) ? "missing" : ""}
+                title={reduced[i] ? "Reduced view (min/max per bucket). Zoom in to read every sample." : undefined}
+              >
                 <span className="sl-swatch" style={{ background: traceColor(i) }} />
                 <span className="sl-chip-name mono">{key}</span>
                 <span
@@ -303,7 +439,15 @@ export function PlotPanel(props: Props) {
                 />
                 {st && (
                   <span className="sl-chip-stats mono dim" title="Min / mean / max in the visible window">
-                    {formatValue(st.min)} / {formatValue(st.mean)} / {formatValue(st.max)}
+                    min {formatValue(st.min)} · avg {formatValue(st.mean)} · max {formatValue(st.max)}
+                  </span>
+                )}
+                {measure.a !== null && measure.b !== null && (
+                  <span
+                    className="sl-chip-stats mono"
+                    title={deltas[i] == null ? "A or B is outside the visible window" : "Value at B minus value at A"}
+                  >
+                    {deltas[i] == null ? "Δ = n/a" : `Δ = ${formatValue(deltas[i] as number)}`}
                   </span>
                 )}
                 <button className="sl-chip-remove" aria-label={`Remove ${key}`} title="Remove the trace" onClick={() => props.onRemoveTrace(trace)}>
@@ -325,10 +469,10 @@ export function PlotPanel(props: Props) {
   );
 }
 
-/** Seconds as m:ss.s on the time axis. */
-export function formatTime(seconds: number): string {
+/** Seconds as m:ss.s (`digits` decimals) on the time axis. */
+export function formatTime(seconds: number, digits = 1): string {
   const sign = seconds < 0 ? "-" : "";
   const s = Math.abs(seconds);
   const m = Math.floor(s / 60);
-  return `${sign}${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`;
+  return `${sign}${m}:${(s - m * 60).toFixed(digits).padStart(3 + digits, "0")}`;
 }

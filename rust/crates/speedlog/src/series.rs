@@ -36,7 +36,8 @@ pub fn view(series: &Series, range: Option<(f64, f64)>, buckets: usize) -> Serie
     let (t, v) = (&series.t[lo..hi], &series.v[lo..hi]);
     let buckets = buckets.max(1);
 
-    let (out_t, out_v) = if t.len() <= buckets * 3 {
+    let reduced = t.len() > buckets * 3;
+    let (out_t, out_v) = if !reduced {
         (t.to_vec(), v.to_vec())
     } else {
         let mut out_t = Vec::with_capacity(buckets * 2);
@@ -93,6 +94,7 @@ pub fn view(series: &Series, range: Option<(f64, f64)>, buckets: usize) -> Serie
         }),
         t_first: series.t.first().copied(),
         t_last: series.t.last().copied(),
+        reduced,
     }
 }
 

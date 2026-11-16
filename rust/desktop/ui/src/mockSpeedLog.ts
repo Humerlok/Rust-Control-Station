@@ -204,7 +204,7 @@ function makeSeries(type: string, field: string, range: [number, number] | null,
       v.push(value);
     }
   }
-  return { t, v, stats: { min, max, mean: sum / (total + 1) }, tFirst: 0, tLast: DURATION };
+  return { t, v, stats: { min, max, mean: sum / (total + 1) }, tFirst: 0, tLast: DURATION, reduced: step > 1 };
 }
 
 export function createSpeedLogMock(): SpeedLogMock {
