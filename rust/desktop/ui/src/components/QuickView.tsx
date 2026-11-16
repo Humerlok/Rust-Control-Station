@@ -1,8 +1,8 @@
 /**
- * Flight Data grid of numeric telemetry tiles; double-click a tile to choose which field it shows.
+ * Flight Data grid of numeric telemetry tiles; double-click a tile (or focus it and press Enter/Space) to choose which field it shows.
  * Layout (cols 1-8, rows 1-4, field keys) is persisted under the localStorage key "quick.layout"; `fields` maps field key to value.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { loadSetting, saveSetting } from "../storage";
 import type { FieldInfo } from "../types";
@@ -83,6 +83,7 @@ export function QuickView({ fields }: Props) {
   });
   const [defs, setDefs] = useState<FieldInfo[]>([]);
   const [editing, setEditing] = useState<number | null>(null);
+  const tiles = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     api.quickFields().then(setDefs).catch(() => setDefs([]));
@@ -95,6 +96,12 @@ export function QuickView({ fields }: Props) {
   };
 
   const info = (key: string): FieldInfo => defs.find((d) => d.key === key) ?? { key, label: key, unit: "", group: "" };
+
+  // Closing the picker returns keyboard focus to the tile it was opened from.
+  const close = () => {
+    if (editing !== null) tiles.current[editing]?.focus();
+    setEditing(null);
+  };
 
   return (
     <div className="panel quick">
@@ -124,7 +131,23 @@ export function QuickView({ fields }: Props) {
           const value = fields[key];
           const text = value === undefined || !Number.isFinite(value) ? "—" : value.toFixed(decimalsFor(key));
           return (
-            <div key={index} className="quick-tile" title="Double-click to choose the value" onDoubleClick={() => setEditing(index)}>
+            <div
+              key={index}
+              ref={(el) => {
+                tiles.current[index] = el;
+              }}
+              className="quick-tile"
+              role="button"
+              tabIndex={0}
+              title="Double-click to choose the value"
+              onDoubleClick={() => setEditing(index)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setEditing(index);
+                }
+              }}
+            >
               <span className="quick-label">
                 {meta.label}
                 {meta.unit && <em> ({meta.unit})</em>}
@@ -138,12 +161,12 @@ export function QuickView({ fields }: Props) {
         <QuickPicker
           fields={defs}
           current={layout.keys[editing]}
-          onCancel={() => setEditing(null)}
+          onCancel={close}
           onPick={(key) => {
             const keys = [...layout.keys];
             keys[editing] = key;
             apply({ ...layout, keys });
-            setEditing(null);
+            close();
           }}
         />
       )}

@@ -1,5 +1,5 @@
 /**
- * "Display This" dialog: searchable, grouped list of Quick View fields. Double-click or Apply picks one.
+ * "Choose value to display" dialog: searchable, grouped list of Quick View fields. Double-click or Apply picks one.
  * Props: field catalog from the backend, current key, onPick, onCancel.
  */
 import { useMemo, useState } from "react";
@@ -33,8 +33,8 @@ export function QuickPicker({ fields, current, onPick, onCancel }: Props) {
 
   return (
     <div className="modal-back" onMouseDown={onCancel}>
-      <div className="modal picker" role="dialog" aria-modal="true" aria-label="Display this" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Display This</h3>
+      <div className="modal picker" role="dialog" aria-modal="true" aria-label="Choose value to display" onMouseDown={(e) => e.stopPropagation()}>
+        <h3>Choose value to display</h3>
         <input
           autoFocus
           placeholder="Search fields"

@@ -101,8 +101,11 @@
 .quick-controls .spacer { flex: 1; }
 .quick-controls select { height: 24px; padding: 0 4px; }
 .quick-grid { display: grid; gap: 1px; background: var(--border); }
-.quick-tile { background: var(--panel); padding: 6px 12px; display: flex; flex-direction: column; user-select: none; min-width: 0; }
-.quick-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quick-tile { background: var(--panel); padding: 6px 12px; display: flex; flex-direction: column; user-select: none; min-width: 0; cursor: pointer; position: relative; }
+.quick-tile:hover, .quick-tile:focus-visible { background: var(--panel-raised); }
+.quick-tile:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.quick-tile:hover::after, .quick-tile:focus-visible::after { content: "\270E"; position: absolute; top: 4px; right: 8px; font-size: 12px; color: var(--text-dim); }
+.quick-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 14px; }
 .quick-label em { font-style: normal; }
 .quick-tile strong { font-size: 26px; font-weight: 600; color: var(--text-strong); }
 
