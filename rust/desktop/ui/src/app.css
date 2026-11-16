@@ -18,6 +18,13 @@
 
 .connect { display: flex; align-items: center; gap: 6px; }
 .connect select, .connect input { height: 28px; }
+.connect { min-width: 0; }
+.connect select:first-child { width: 190px; min-width: 110px; flex-shrink: 1; text-overflow: ellipsis; }
+.connect input.port, .connect .baud, .connect button { flex: none; }
+.topbar > select { min-width: 150px; flex: none; }
+.topbar > .link-pill, .topbar > .badge, .topbar > button { flex: none; }
+.topbar > .stats { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 1240px) { .topbar > .stats { display: none; } }
 .connect input.port { width: 70px; }
 .connect input.host { width: 130px; }
 .connect input.url { width: 220px; }
