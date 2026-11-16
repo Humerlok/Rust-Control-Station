@@ -38,6 +38,17 @@ step response) are phases 2 and 3, not started**.
   download). **Not verified**: a real `.BIN` in the Tauri app (no sample log on this machine), download from a real
   vehicle over MAVFTP or LOG_DATA, very large logs (memory: the whole file is kept in RAM, as SpeedLOG does).
 
+## UI review (2026-11-16, plan in `docs/UI_REVIEW_PLAN.md`)
+
+Packages A-G and J of the plan were applied, one commit per package (`desktop: ...`):
+- HUD offline state, text that scales with the HUD, roll scale, full-width battery line (A); top bar that fits the minimum window (B); Cancel is focused on dangerous confirmations and Disarm in flight is a danger dialog (C); discoverable, keyboard-accessible Quick View tiles (D); map zoom at the bottom right, outlined track, alerts above the HUD (E); Flight Plan hint, labelled grid inputs, fence/rally default commands (F); DroneCAN checkbox layout (G).
+- SpeedLOG precision (J): millisecond time, taller plots, labelled cursor, `≈` on reduced views (`SeriesView.reduced` in `crates/speedlog`), undo/pan/wheel zoom, A/B measurement, dual Y axes, sample points at high zoom, stable tabs.
+- Checked in the browser with the mock backend at 1080x680 (top bar, zoom, HUD, dialogs, Quick View, Flight Plan, SpeedLOG time/height/cursor). Not run in the Tauri window or on a vehicle; the SpeedLOG measurement, pan and dual-axis flows were verified by code review only.
+
+Known limits left open:
+- Fence/Rally: the command list still offers mission commands and the grid headers fall back to P1..P4/Lat/Lon/Alt, because the backend has no catalog per type. The right fix is a type parameter in `ardupilot-meta` (`mission_commands`), not React.
+- SpeedLOG: `spanGaps: true` joins data gaps with a straight line, so log dropouts are not visible; `valueNear` searches up to 400 rows in the joined table, so a slow trace can show a cursor value up to about 1 s off; there is no manual Y zoom and no CSV export of the visible window.
+
 ## Beta adjustments from `reajustes.md` (2026-11-09)
 
 - **Save dialogs**: MAVFTP Download, Flight Plan "Save file" and Parameters "Save to file" open a native "Save as" dialog (`tauri-plugin-dialog`, opened from Rust in `src-tauri/src/save_dialog.rs`) and write the file there. The commands are `ftp_download_save`, `mission_save_file`, `params_save_file`; each returns the saved path or `null` on cancel. They replace `ftp_download`, `mission_format_file` and `params_format_file`. The webview gets no generic "write a path" command. In `?mock=1`, saving falls back to a browser download (`mockDownload.ts`).
