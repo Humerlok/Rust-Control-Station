@@ -121,6 +121,16 @@ impl VehicleState {
         &self.fields
     }
 
+    /// Forgets what the telemetry accumulated (values, position, home, flight totals) but keeps the
+    /// vehicle itself: type, mode, arm state and heartbeat. A log replay calls it when it jumps in
+    /// time, because the old values no longer describe the new moment.
+    pub fn reset_telemetry(&mut self) {
+        self.fields.clear();
+        self.position = None;
+        self.home = None;
+        self.last_flight_tick = None;
+    }
+
     /// Name for the vehicle selector, like the legacy `MAV_TYPE` label: `QUADROTOR`, `GIMBAL`.
     pub fn component_name(&self) -> String {
         format!("{:?}", self.mav_type)
@@ -299,6 +309,50 @@ mod tests {
         assert!(!v.autopilot);
         assert_eq!(v.mode(), None);
         assert_eq!(v.component_name(), "GIMBAL");
+    }
+
+    #[test]
+    fn reset_telemetry_keeps_the_vehicle_but_forgets_its_values() {
+        let mut v = vehicle();
+        let t0 = Instant::now();
+        v.apply(
+            &heartbeat(
+                MavType::MAV_TYPE_QUADROTOR,
+                MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
+                true,
+                5,
+            ),
+            t0,
+            0,
+        );
+        v.apply(
+            &MavMessage::GLOBAL_POSITION_INT(GLOBAL_POSITION_INT_DATA {
+                lat: -205_000_000,
+                lon: -474_000_000,
+                relative_alt: 12_000,
+                ..GLOBAL_POSITION_INT_DATA::default()
+            }),
+            t0,
+            0,
+        );
+        v.apply(
+            &MavMessage::HOME_POSITION(HOME_POSITION_DATA {
+                latitude: -205_000_000,
+                longitude: -474_000_000,
+                ..HOME_POSITION_DATA::default()
+            }),
+            t0,
+            0,
+        );
+        assert!(v.position.is_some() && v.home.is_some() && !v.fields().is_empty());
+
+        v.reset_telemetry();
+
+        assert!(v.position.is_none() && v.home.is_none() && v.fields().is_empty());
+        // The vehicle itself stays: still alive, armed, in the same mode.
+        assert!(v.is_alive(t0, Duration::from_secs(5)));
+        assert!(v.armed);
+        assert_eq!(v.mode().as_deref(), Some("Loiter"));
     }
 
     #[test]

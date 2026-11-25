@@ -20,10 +20,20 @@ import { createMissionMock } from "./mockMission";
 import { createDroneCanMock } from "./mockDroneCan";
 import { createMotorMock } from "./mockMotor";
 import { createParamsCalibrationMock } from "./mockParamsCalibration";
+import { createReplayMock, MOCK_LOG_PATH } from "./mockReplay";
 
 // Simulated circle: centre of the flight path and its radius in degrees of latitude.
 const CENTER = { lat: -21.92, lon: -47.93 };
 const RADIUS_DEG = 0.0012;
+
+/** Where the simulated vehicle is on its circle `t` seconds into the flight. */
+function circlePoint(t: number): { lat: number; lon: number } {
+  const a = t * 0.15;
+  return {
+    lat: CENTER.lat + RADIUS_DEG * Math.sin(a),
+    lon: CENTER.lon + (RADIUS_DEG * Math.cos(a)) / Math.cos((CENTER.lat * Math.PI) / 180),
+  };
+}
 const MODES = ["Stabilize", "Acro", "AltHold", "Auto", "Guided", "Loiter", "RTL", "Circle", "Land", "PosHold", "Brake", "Smart_RTL"];
 
 const QUICK_FIELDS: FieldInfo[] = [
@@ -98,8 +108,7 @@ export function createMockBackend(): Backend {
     if (!connected) return emptyTelemetry;
     // `t` advances 0.1 per 100 ms tick; `a` is the angle around the circle.
     const a = t * 0.15;
-    const lat = CENTER.lat + RADIUS_DEG * Math.sin(a);
-    const lon = CENTER.lon + (RADIUS_DEG * Math.cos(a)) / Math.cos((CENTER.lat * Math.PI) / 180);
+    const { lat, lon } = circlePoint(t);
     const heading = (((-a * 180) / Math.PI) % 360 + 360) % 360;
     const alt = armed ? 42 + 6 * Math.sin(t * 0.2) : 0;
     const distHome = Math.hypot(RADIUS_DEG * 111_000 * Math.sin(a), RADIUS_DEG * 111_000 * Math.cos(a));
@@ -176,10 +185,29 @@ export function createMockBackend(): Backend {
     listeners.link.forEach((cb) => cb(lastLink));
   }
 
+  // "Replay (log)": a timeline over the same flight. While one is active it decides where in the flight `t` is.
+  const {
+    start: startReplay,
+    stop: stopReplay,
+    active: replayActive,
+    advance: advanceReplay,
+    ...replay
+  } = createReplayMock({
+    pathAt: (seconds) => {
+      const point = circlePoint(seconds);
+      return [point.lat, point.lon];
+    },
+  });
+  // `?mock=1&replay=1` opens already replaying a log, to look at the playback bar without clicking through.
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("replay")) {
+    description = "Replay mock-flight.BIN";
+    startReplay(MOCK_LOG_PATH);
+  }
+
   let messageIndex = 0;
   // 10 Hz telemetry; link stats and a rotating STATUSTEXT every 2.5 s.
   setInterval(() => {
-    t += 0.1;
+    t = replayActive() ? advanceReplay(0.1) : t + 0.1;
     packets += 6;
     lastTelemetry = buildTelemetry();
     listeners.telemetry.forEach((cb) => cb(lastTelemetry));
@@ -226,7 +254,8 @@ export function createMockBackend(): Backend {
       { name: "COM7", description: "Standard Serial over Bluetooth link" },
     ],
     async connect(config: ConnectionConfig) {
-      if (config.type === "replay" && config.path.trim() === "") throw "replay file path is empty";
+      if (config.type === "replay" && config.path.trim() === "") throw "choose a log file";
+      stopReplay();
       paramsCal.reset();
       resetDroneCan();
       connecting = true;
@@ -235,13 +264,20 @@ export function createMockBackend(): Backend {
       await sleep(600);
       connecting = false;
       connected = true;
-      description = `Mock ${config.type} link`;
+      if (config.type === "replay") {
+        t = 0;
+        startReplay(config.path);
+        description = `Replay ${config.path.split(/[\\/]/).pop() || config.path}`;
+      } else {
+        description = `Mock ${config.type} link`;
+      }
       emitLink();
       emitStatus(6, "Heartbeat received from system 1");
     },
     async disconnect() {
       connected = false;
       connecting = false;
+      stopReplay();
       paramsCal.reset();
       resetDroneCan();
       emitLink();
@@ -307,6 +343,7 @@ export function createMockBackend(): Backend {
     onParamsProgress: paramsCal.onParamsProgress,
     onCalibration: paramsCal.onCalibration,
     ...dronecan,
+    ...replay,
     ...createMotorMock({ isConnected: () => connected, isArmed: () => armed, emitStatus }),
     ...createInspectorMock(),
     ...createMissionMock(),

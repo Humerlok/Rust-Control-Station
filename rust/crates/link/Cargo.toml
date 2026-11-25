@@ -24,3 +24,5 @@ num-traits = "0.2"
 
 [dev-dependencies]
 serde_json.workspace = true
+# Virtual time for the replay player's tests (`start_paused`, `advance`).
+tokio = { workspace = true, features = ["test-util"] }

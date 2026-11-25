@@ -1,6 +1,7 @@
 /**
  * Top-bar connection controls: link type, endpoint fields, Connect/Disconnect, vehicle selector and link statistics.
- * The last settings are persisted under the localStorage key "connect.settings".
+ * The last settings are persisted under the localStorage key "connect.settings". A log replay picks its file with the
+ * native file dialog (`api.pickReplayLog`) instead of a typed path.
  */
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
@@ -34,7 +35,8 @@ const DEFAULTS: Settings = {
   udpclHost: "127.0.0.1",
   udpclPort: "14550",
   wsUrl: "",
-  replayPath: "exemplos/Teste 02 - tunning.BIN",
+  // Chosen with the file dialog; nothing is assumed until the user picks a log.
+  replayPath: "",
 };
 
 const SETTINGS_KEY = "connect.settings";
@@ -63,12 +65,15 @@ function buildConfig(s: Settings): ConnectionConfig {
       if (!s.wsUrl.trim()) throw "enter the WebSocket URL";
       return { type: "ws", url: s.wsUrl.trim() };
     case "replay":
-      if (!s.replayPath.trim()) throw "enter the log file path";
+      if (!s.replayPath.trim()) throw "choose a log file";
       return { type: "replay", path: s.replayPath.trim() };
   }
 }
 
 type Props = { link: LinkInfo; telemetry: Telemetry; notify: (text: string, ok: boolean) => void };
+
+/** The last component of a path, for showing the chosen log. */
+const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** Legacy-style selector label: `1-1 QUADROTOR`, `1-154 GIMBAL`. */
 const vehicleLabel = (v: VehicleSummary) => `${v.systemId}-${v.componentId} ${v.component || v.vehicleType}`;
@@ -92,11 +97,22 @@ export function ConnectBar({ link, telemetry, notify }: Props) {
       notify(`${systems} vehicles detected (different SYSID). Choose one in the Vehicle selector.`, true);
     }
   }, [link.state, systems, notify]);
-  const update = (patch: Partial<Settings>) => {
-    const next = { ...settings, ...patch };
-    setSettings(next);
-    saveSetting(SETTINGS_KEY, next);
-  };
+  // Functional update: the file dialog answers later, and must not write back the settings of the render that opened it.
+  const update = (patch: Partial<Settings>) =>
+    setSettings((prev) => {
+      const next = { ...prev, ...patch };
+      saveSetting(SETTINGS_KEY, next);
+      return next;
+    });
+
+  async function chooseLog() {
+    try {
+      const path = await api.pickReplayLog();
+      if (path) update({ replayPath: path });
+    } catch (error) {
+      setLocalError(String(error));
+    }
+  }
 
   const refreshPorts = () => {
     api.listSerialPorts().then(setPorts).catch(() => setPorts([]));
@@ -111,7 +127,11 @@ export function ConnectBar({ link, telemetry, notify }: Props) {
 
   function onSelectKind(value: string) {
     if (value.startsWith("serial:")) update({ kind: "serial", serialPort: value.slice("serial:".length) });
-    else update({ kind: value as Kind });
+    else {
+      update({ kind: value as Kind });
+      // Choosing "Replay (log)" with no log picked yet goes straight to the file dialog.
+      if (value === "replay" && !settings.replayPath.trim()) void chooseLog();
+    }
   }
 
   async function toggle() {
@@ -194,7 +214,15 @@ export function ConnectBar({ link, telemetry, notify }: Props) {
           <input className="url" aria-label="WebSocket URL" disabled={active} value={settings.wsUrl} onChange={(e) => update({ wsUrl: e.target.value })} placeholder="ws://host:port/path" />
         )}
         {settings.kind === "replay" && (
-          <input className="url" aria-label="Log file path" disabled={active} value={settings.replayPath} onChange={(e) => update({ replayPath: e.target.value })} placeholder="path to .BIN log" />
+          <button
+            className="replay-pick"
+            aria-label="Choose the log to replay"
+            disabled={active}
+            title={settings.replayPath || "Choose the flight log (.BIN) to replay"}
+            onClick={() => void chooseLog()}
+          >
+            {baseName(settings.replayPath) || "Choose log…"}
+          </button>
         )}
 
         <button className="primary" disabled={busy || link.state === "connecting"} onClick={toggle}>

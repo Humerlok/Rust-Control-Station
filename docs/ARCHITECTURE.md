@@ -60,9 +60,12 @@ Rules that keep it maintainable:
 
 ## Running without a drone
 
-- **Replay (log):** connection type "Replay (log)" plays `exemplos/Teste 02 - tunning.BIN` (git-ignored; put a log
-  there). It serves the log's parameters and an in-memory mission/fence/rally store, and answers commands with
-  "unsupported".
+- **Replay (log):** connection type "Replay (log)" plays a `.BIN` log picked with the native file dialog (the sample
+  is `exemplos/Teste 02 - tunning.BIN`, git-ignored; put a log there). It serves the log's parameters and an in-memory
+  mission/fence/rally store, and answers commands with "unsupported". Playback is controllable: a playback bar under
+  the Flight Data map (play/pause, timeline, 0.5x-2x) drives `LinkManager::replay_*`; the replay is a fake vehicle
+  that writes MAVLink into an in-process pipe, so a jump in the timeline is just a burst of the state at that
+  moment (`replay.rs`, `keyframe`), and the position comes back as `replay` events.
 - **UI only:** `npm run dev` in `rust/desktop/ui`, then open `/?mock=1`. No Rust needed.
 
 ## Checks before a pull request

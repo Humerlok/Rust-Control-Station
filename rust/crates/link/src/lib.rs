@@ -46,6 +46,6 @@ pub use motor_test::{
 };
 pub use params::{ParamError, ParamProgress, ParamService, ParamTiming};
 pub use types::{
-    ConnectionConfig, LinkError, LinkEvent, LinkInfo, LinkState, LinkStats, TelemetrySnapshot,
-    VehicleSummary,
+    ConnectionConfig, LinkError, LinkEvent, LinkInfo, LinkState, LinkStats, ReplayStatus,
+    TelemetrySnapshot, VehicleSummary,
 };

@@ -19,6 +19,7 @@ mod log_cmds;
 mod mission_cmds;
 mod motor_cmds;
 mod params_cmds;
+mod replay_cmds;
 mod save_dialog;
 mod speedlog_cmds;
 
@@ -409,6 +410,7 @@ fn main() {
                         Ok(LinkEvent::Telemetry(t)) => handle.emit("telemetry", t),
                         Ok(LinkEvent::StatusText(s)) => handle.emit("statustext", s),
                         Ok(LinkEvent::Link(l)) => handle.emit("link", l),
+                        Ok(LinkEvent::Replay(r)) => handle.emit("replay", r),
                         Err(RecvError::Lagged(_)) => continue,
                         Err(RecvError::Closed) => break,
                     };
@@ -438,6 +440,13 @@ fn main() {
             takeoff,
             fly_to,
             set_home_here,
+            replay_cmds::replay_status,
+            replay_cmds::replay_play,
+            replay_cmds::replay_pause,
+            replay_cmds::replay_seek,
+            replay_cmds::replay_set_speed,
+            replay_cmds::replay_track,
+            replay_cmds::pick_replay_log,
             params_cmds::params_refresh,
             params_cmds::params_list,
             params_cmds::param_set,

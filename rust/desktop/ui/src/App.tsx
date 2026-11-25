@@ -5,6 +5,7 @@ import { ConnectBar } from "./components/ConnectBar";
 import { RebootButton } from "./components/RebootButton";
 import { paramStore } from "./useParams";
 import { useLive } from "./useLive";
+import { useReplay } from "./useReplay";
 import { Calibration } from "./views/Calibration";
 import { ExtendedTuning } from "./views/ExtendedTuning";
 import { DroneCan } from "./views/DroneCan";
@@ -50,6 +51,8 @@ type Toast = { text: string; ok: boolean; id: number };
 
 export function App() {
   const { telemetry, link, messages, clearMessages } = useLive();
+  // A new replay or a jump in its timeline invalidates the message list (and the map track, see FlightMap).
+  const replay = useReplay(clearMessages);
   const [view, setView] = useState("flight-data");
   const [toast, setToast] = useState<Toast | null>(null);
   const toastId = useRef(0);
@@ -103,7 +106,7 @@ export function App() {
       <main className="content">
         {/* Every screen stays mounted and is only hidden, so unsaved edits and scroll positions survive navigation. */}
         <div className="view" hidden={view !== "flight-data"}>
-          <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} />
+          <FlightData telemetry={telemetry} messages={messages} onClearMessages={clearMessages} notify={notify} replay={replay} />
         </div>
         <div className="view" hidden={view !== "flight-plan"}>
           <FlightPlan telemetry={telemetry} notify={notify} />

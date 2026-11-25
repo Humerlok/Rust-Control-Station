@@ -91,12 +91,20 @@ function MapBehavior({ position, follow, onUserDrag, onContext, onDismiss }: Beh
   return null;
 }
 
+/** A log replay's timeline: `resetKey` changes for a new replay and for every jump in it (see `useReplay`). */
+export type ReplayTrackSource = { resetKey: string; positionS: number };
+
+// How long the timeline must stay still before the track is rebuilt: dragging it changes the key ~10 times a second.
+const TRACK_REBUILD_DELAY_MS = 250;
+
 type Props = {
   telemetry: Telemetry;
   notify: (text: string, ok: boolean) => void;
+  /** Set while the link is a log replay: after a jump the track is the path flown up to the new position. */
+  replay?: ReplayTrackSource | null;
 };
 
-export function FlightMap({ telemetry, notify }: Props) {
+export function FlightMap({ telemetry, notify, replay = null }: Props) {
   const [base, setBase] = useState<BaseKey>(() => loadSetting<BaseKey>("map.base", "sat"));
   const [follow, setFollow] = useState(true);
   const [track, setTrack] = useState<LatLngTuple[]>([]);
@@ -123,6 +131,30 @@ export function FlightMap({ telemetry, notify }: Props) {
       return next.length > MAX_TRACK_POINTS ? next.slice(next.length - MAX_TRACK_POINTS) : next;
     });
   }, [lat, lon]);
+
+  // A jump in a replay's timeline (or a new replay) makes the drawn track wrong: it holds the future, or lacks the
+  // stretch that was skipped. The backend knows the whole flight, so ask it for the path up to the new position.
+  const rebuildKey = replay?.resetKey;
+  const replayPositionS = useRef(0);
+  useEffect(() => {
+    replayPositionS.current = replay?.positionS ?? 0;
+  });
+  useEffect(() => {
+    if (rebuildKey === undefined) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      api
+        .replayTrack(replayPositionS.current)
+        .then((points) => {
+          if (alive) setTrack(points);
+        })
+        .catch(() => undefined);
+    }, TRACK_REBUILD_DELAY_MS);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [rebuildKey]);
 
   function chooseBase(next: BaseKey) {
     setBase(next);

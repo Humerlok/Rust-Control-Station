@@ -45,7 +45,9 @@ sudo usermod -aG dialout,lock $USER # Fedora
 
 ## Testar sem drone
 
-Em *Connect*, escolha o tipo **Replay (log)**. Ele precisa de um arquivo `.BIN` do ArduPilot, que não vem no instalador.
+Em *Connect*, escolha o tipo **Replay (log)**. Ele precisa de um arquivo `.BIN` do ArduPilot, que não vem no instalador. Ao escolher o tipo, abre a janela do sistema para você selecionar o arquivo (depois, o botão ao lado troca o log); em seguida clique em *Connect*.
+
+Com o log tocando, aparece uma barra de reprodução embaixo do mapa em *Flight Data*: play/pause, a linha do tempo (arraste para voltar ou avançar no voo), o tempo decorrido e a velocidade (0,5x, 1x, 1,5x, 2x). Ao chegar ao fim, o play recomeça o log.
 
 ## O que testar
 

@@ -100,11 +100,18 @@ needs a rebuild that `tauri dev` does not trigger by itself (touch `src/main.rs`
 
 ### Running without a drone
 
-Connect type "Replay (log)" plays `exemplos/Teste 02 - tunning.BIN` (relative paths are also tried
-from parent directories). The replay serves the log's PARM records as parameters (read, list, set
-with echo), keeps an in-memory mission/fence/rally store (upload then download round-trips) and
-answers every command with "unsupported". `exemplos/` is git-ignored: logs are large and are
-telemetry.
+Connect type "Replay (log)" plays a DataFlash `.BIN` log chosen with the native file dialog (the
+Connect bar shows a "Choose log…" button; selecting the type with no log picked opens the dialog).
+The sample log is `exemplos/Teste 02 - tunning.BIN` (relative paths are also tried from parent
+directories). The replay serves the log's PARM records as parameters (read, list, set with echo),
+keeps an in-memory mission/fence/rally store (upload then download round-trips) and answers every
+command with "unsupported". `exemplos/` is git-ignored: logs are large and are telemetry.
+
+A replay has a playback bar under the Flight Data map: play/pause, a timeline to drag back and forth,
+elapsed/total time and 0.5x/1x/1.5x/2x. The controls are `LinkManager::replay_*` (a `ReplayHandle` in
+`link/src/replay.rs`); the position goes to the UI as `replay` events (`ReplayStatus`). A jump sends the
+vehicle state at that moment (last attitude/position/GPS/battery, mode, arm state, home) and bumps
+`seekEpoch`, which makes the UI rebuild the map track and clear the messages.
 
 To drive the real window without the OS foreground (screenshots, scripted clicks), launch with
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9222` and talk CDP to the page;

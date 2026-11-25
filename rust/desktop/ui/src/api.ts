@@ -36,6 +36,7 @@ import type {
   ParamMeta,
   ParamsProgress,
   ParsedParamFile,
+  ReplayStatus,
   SerialPortInfo,
   SpinParam,
   StatusText,
@@ -74,6 +75,18 @@ export interface Backend {
   takeoff(altitudeM: number): Promise<string>;
   flyTo(lat: number, lon: number, altitudeM: number): Promise<string>;
   setHomeHere(lat: number, lon: number, altitudeM: number): Promise<string>;
+  /** Native "open file" dialog for the log to replay; resolves to its path, or null when cancelled. */
+  pickReplayLog(): Promise<string | null>;
+  /** Where the replay is; null when the connection is not a log replay. */
+  replayStatus(): Promise<ReplayStatus | null>;
+  /** At the end of the log, starts it over. */
+  replayPlay(): Promise<void>;
+  replayPause(): Promise<void>;
+  /** Jumps to `seconds` into the log. `settle` is false while the user is still dragging, true for the final position. */
+  replaySeek(seconds: number, settle: boolean): Promise<void>;
+  replaySetSpeed(speed: number): Promise<void>;
+  /** The path flown up to `untilS`, as [lat, lon] pairs (thinned), to rebuild the map track after a jump. */
+  replayTrack(untilS: number): Promise<Array<[number, number]>>;
   paramsRefresh(): Promise<number>;
   paramsList(): Promise<ParamEntry[]>;
   paramSet(name: string, value: number): Promise<number>;
@@ -177,6 +190,8 @@ export interface Backend {
   onTelemetry(cb: (t: Telemetry) => void): Promise<Unlisten>;
   onStatusText(cb: (m: StatusText) => void): Promise<Unlisten>;
   onLink(cb: (l: LinkInfo) => void): Promise<Unlisten>;
+  /** Replay position and controls, about 10 times a second while playing; null once the link is not a replay. */
+  onReplay(cb: (s: ReplayStatus | null) => void): Promise<Unlisten>;
   onParamsProgress(cb: (p: ParamsProgress) => void): Promise<Unlisten>;
   onCalibration(cb: (c: CalibrationState) => void): Promise<Unlisten>;
   onMotorTest(cb: (s: MotorTestState) => void): Promise<Unlisten>;
@@ -214,6 +229,13 @@ const tauriBackend: Backend = {
   takeoff: (altitudeM) => invoke("takeoff", { altitudeM }),
   flyTo: (lat, lon, altitudeM) => invoke("fly_to", { lat, lon, altitudeM }),
   setHomeHere: (lat, lon, altitudeM) => invoke("set_home_here", { lat, lon, altitudeM }),
+  pickReplayLog: () => invoke("pick_replay_log"),
+  replayStatus: () => invoke("replay_status"),
+  replayPlay: () => invoke("replay_play"),
+  replayPause: () => invoke("replay_pause"),
+  replaySeek: (seconds, settle) => invoke("replay_seek", { seconds, settle }),
+  replaySetSpeed: (speed) => invoke("replay_set_speed", { speed }),
+  replayTrack: (untilS) => invoke("replay_track", { untilS }),
   paramsRefresh: () => invoke("params_refresh"),
   paramsList: () => invoke("params_list"),
   paramSet: (name, value) => invoke("param_set", { name, value }),
@@ -294,6 +316,7 @@ const tauriBackend: Backend = {
   onTelemetry: subscribe<Telemetry>("telemetry"),
   onStatusText: subscribe<StatusText>("statustext"),
   onLink: subscribe<LinkInfo>("link"),
+  onReplay: subscribe<ReplayStatus | null>("replay"),
   onParamsProgress: subscribe<ParamsProgress>("params-progress"),
   onCalibration: subscribe<CalibrationState>("calibration"),
   onMotorTest: subscribe<MotorTestState>("motor-test"),

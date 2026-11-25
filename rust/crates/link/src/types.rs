@@ -112,11 +112,33 @@ pub struct TelemetrySnapshot {
     pub vehicles: Vec<VehicleSummary>,
 }
 
+/// Where a log replay is: published about ten times a second while playing and on every change
+/// (play, pause, seek, speed, end of log). `None` in [`LinkEvent::Replay`] means the link is not a replay.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplayStatus {
+    /// The log's file name, for display.
+    pub file_name: String,
+    pub playing: bool,
+    /// The log played to its last record; it stays paused there until a seek or Play.
+    pub ended: bool,
+    /// Playback speed multiplier (1.0 = real time).
+    pub speed: f64,
+    /// Seconds from the first replayable record of the log.
+    pub position_s: f64,
+    pub duration_s: f64,
+    /// Counts the jumps in the timeline (seeks, restarts). The UI rebuilds what it accumulated
+    /// (map track, messages) when it changes; it starts at 0 for every replay.
+    pub seek_epoch: u64,
+}
+
 #[derive(Debug, Clone)]
 pub enum LinkEvent {
     Link(LinkInfo),
     Telemetry(TelemetrySnapshot),
     StatusText(StatusText),
+    /// Replay position and controls; `None` once the link is no longer a replay.
+    Replay(Option<ReplayStatus>),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -267,6 +289,32 @@ mod tests {
         assert_eq!(value["vehicles"][0]["systemId"], 1);
         assert_eq!(value["vehicles"][0]["component"], "QUADROTOR");
         assert_eq!(value["vehicles"][0]["autopilot"], true);
+    }
+
+    #[test]
+    fn replay_status_matches_the_ui_contract() {
+        let value = serde_json::to_value(ReplayStatus {
+            file_name: "flight.BIN".into(),
+            playing: true,
+            ended: false,
+            speed: 1.5,
+            position_s: 12.25,
+            duration_s: 180.0,
+            seek_epoch: 3,
+        })
+        .unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "fileName": "flight.BIN",
+                "playing": true,
+                "ended": false,
+                "speed": 1.5,
+                "positionS": 12.25,
+                "durationS": 180.0,
+                "seekEpoch": 3
+            })
+        );
     }
 
     #[test]

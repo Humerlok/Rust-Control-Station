@@ -27,17 +27,22 @@ use control_station_vehicle_state::{
     is_component_heartbeat, status_text, VehicleId, VehicleState, FIELDS,
 };
 use tokio::{
-    sync::{broadcast, mpsc},
+    sync::{broadcast, mpsc, watch},
     task::JoinHandle,
 };
 
 use crate::{
-    replay, scan,
+    replay::{self, ReplayHandle},
+    scan,
     types::{
-        ConnectionConfig, LinkError, LinkEvent, LinkInfo, LinkState, LinkStats, TelemetrySnapshot,
-        VehicleSummary,
+        ConnectionConfig, LinkError, LinkEvent, LinkInfo, LinkState, LinkStats, ReplayStatus,
+        TelemetrySnapshot, VehicleSummary,
     },
 };
+
+/// How many points of the flown path a replay hands the map after a jump in the timeline. Below
+/// the map's own cap, so the rebuilt track does not start losing its beginning at once.
+const REPLAY_TRACK_POINTS: usize = 1500;
 
 /// Timeouts of the link; tests shorten them (see `LinkManager::with_timing`).
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +75,8 @@ struct AckEvent {
 struct Session {
     tx: mpsc::Sender<Vec<u8>>,
     tasks: Vec<JoinHandle<()>>,
+    /// Playback controls when the connection is a log replay; dropping them stops the replay.
+    replay: Option<ReplayHandle>,
 }
 
 impl Drop for Session {
@@ -417,6 +424,64 @@ impl LinkManager {
         self.lock().local_port
     }
 
+    /// The playback controls of the current connection, when it is a log replay.
+    fn replay_handle(&self) -> Result<ReplayHandle, LinkError> {
+        self.lock()
+            .session
+            .as_ref()
+            .and_then(|session| session.replay.clone())
+            .ok_or_else(|| LinkError::Other("not a replay link".into()))
+    }
+
+    /// Where the replay is; `None` when the connection is not a log replay.
+    pub fn replay_status(&self) -> Option<ReplayStatus> {
+        self.lock()
+            .session
+            .as_ref()
+            .and_then(|session| session.replay.as_ref())
+            .map(ReplayHandle::status)
+    }
+
+    /// Plays; at the end of the log this starts it over.
+    pub fn replay_play(&self) -> Result<(), LinkError> {
+        let handle = self.replay_handle()?;
+        if handle.status().ended {
+            // Through the manager, so the accumulators of the old pass are cleared too.
+            self.replay_seek(0.0, true)?;
+        }
+        handle.play()
+    }
+
+    pub fn replay_pause(&self) -> Result<(), LinkError> {
+        self.replay_handle()?.pause()
+    }
+
+    /// Jumps to `seconds` after the first record of the log. `settle` is false while the user is
+    /// still dragging the timeline (cheap: only the vehicle state of that moment is sent) and
+    /// true for the final position, which also clears what the telemetry had accumulated.
+    pub fn replay_seek(&self, seconds: f64, settle: bool) -> Result<(), LinkError> {
+        let handle = self.replay_handle()?;
+        if settle {
+            // Before the jump is signaled: the vehicle state it sends must land on a clean slate,
+            // not be wiped by a reset that runs after it (home is only sent with that state).
+            let mut inner = self.lock();
+            for vehicle in inner.vehicles.values_mut() {
+                vehicle.reset_telemetry();
+            }
+            inner.dirty = true;
+        }
+        handle.seek(seconds)
+    }
+
+    pub fn replay_set_speed(&self, speed: f64) -> Result<(), LinkError> {
+        self.replay_handle()?.set_speed(speed)
+    }
+
+    /// The path flown up to `until_s` seconds into the log, as (lat, lon) pairs, for the map track.
+    pub fn replay_track(&self, until_s: f64) -> Result<Vec<(f64, f64)>, LinkError> {
+        Ok(self.replay_handle()?.track(until_s, REPLAY_TRACK_POINTS))
+    }
+
     pub fn select_vehicle(&self, id: VehicleId) {
         let mut inner = self.lock();
         if inner.vehicles.contains_key(&id) {
@@ -438,8 +503,8 @@ impl LinkManager {
             let _ = self.shared.events.send(LinkEvent::Link(inner.info()));
         }
         match open_config(&config).await {
-            Ok(connection) => {
-                self.start_session(connection);
+            Ok((connection, replay)) => {
+                self.start_session(connection, replay);
                 Ok(())
             }
             Err(error) => {
@@ -458,18 +523,22 @@ impl LinkManager {
             return;
         }
         inner.generation += 1;
+        let was_replay = inner.session.as_ref().is_some_and(|s| s.replay.is_some());
         inner.session = None;
         inner.state = LinkState::Disconnected;
         inner.error = None;
         inner.local_port = None;
         inner.reset_session_data();
         let _ = self.shared.events.send(LinkEvent::Link(inner.info()));
+        if was_replay {
+            let _ = self.shared.events.send(LinkEvent::Replay(None));
+        }
         let _ = self.shared.events.send(LinkEvent::Telemetry(
             inner.snapshot(self.shared.timing.heartbeat_timeout),
         ));
     }
 
-    fn start_session(&self, connection: Connection) {
+    fn start_session(&self, connection: Connection, replay: Option<ReplayHandle>) {
         let Connection {
             reader,
             writer,
@@ -480,16 +549,34 @@ impl LinkManager {
         let mut inner = self.lock();
         inner.generation += 1;
         let generation = inner.generation;
-        let tasks = vec![
+        let mut tasks = vec![
             tokio::spawn(reader_task(self.shared.clone(), reader, generation)),
             tokio::spawn(writer_task(self.shared.clone(), writer, rx, generation)),
             tokio::spawn(ticker_task(self.shared.clone(), generation)),
         ];
-        inner.session = Some(Session { tx, tasks });
+        if let Some(handle) = &replay {
+            tasks.push(tokio::spawn(replay_pump(
+                self.shared.clone(),
+                handle.watch(),
+                generation,
+            )));
+        }
+        inner.session = Some(Session { tx, tasks, replay });
         inner.state = LinkState::Connected;
         inner.description = description;
         inner.local_port = local_port;
         inner.error = None;
+        // The replay announces itself first, still under the lock: the reader cannot publish the log's
+        // opening messages before this, so the UI (which starts a replay with an empty message list)
+        // never receives them ahead of it.
+        if let Some(status) = inner
+            .session
+            .as_ref()
+            .and_then(|session| session.replay.as_ref())
+            .map(ReplayHandle::status)
+        {
+            let _ = self.shared.events.send(LinkEvent::Replay(Some(status)));
+        }
         let _ = self.shared.events.send(LinkEvent::Link(inner.info()));
     }
 
@@ -644,6 +731,7 @@ impl LinkManager {
             return;
         }
         inner.generation += 1;
+        let was_replay = inner.session.as_ref().is_some_and(|s| s.replay.is_some());
         // Dropping the session aborts every task, including the caller; it must return right away.
         inner.session = None;
         inner.state = LinkState::Disconnected;
@@ -651,6 +739,9 @@ impl LinkManager {
         inner.local_port = None;
         inner.dirty = true;
         let _ = shared.events.send(LinkEvent::Link(inner.info()));
+        if was_replay {
+            let _ = shared.events.send(LinkEvent::Replay(None));
+        }
         let _ = shared.events.send(LinkEvent::Telemetry(
             inner.snapshot(shared.timing.heartbeat_timeout),
         ));
@@ -680,11 +771,15 @@ fn describe(config: &ConnectionConfig) -> String {
     }
 }
 
-async fn open_config(config: &ConnectionConfig) -> Result<Connection, LinkError> {
+/// Opens the transport; a log replay also hands back its playback controls.
+async fn open_config(
+    config: &ConnectionConfig,
+) -> Result<(Connection, Option<ReplayHandle>), LinkError> {
     let endpoint = match config {
-        ConnectionConfig::Auto => return scan::scan_serial().await,
+        ConnectionConfig::Auto => return Ok((scan::scan_serial().await?, None)),
         ConnectionConfig::Replay { path, speed } => {
-            return replay::open(path, speed.unwrap_or(1.0)).await
+            let (connection, handle) = replay::open(path, speed.unwrap_or(1.0)).await?;
+            return Ok((connection, Some(handle)));
         }
         ConnectionConfig::Serial { port, baud } => Endpoint::Serial {
             port: port.clone(),
@@ -701,7 +796,30 @@ async fn open_config(config: &ConnectionConfig) -> Result<Connection, LinkError>
         },
         ConnectionConfig::Ws { url } => Endpoint::WebSocket { url: url.clone() },
     };
-    Ok(control_station_transport::open(&endpoint).await?)
+    Ok((control_station_transport::open(&endpoint).await?, None))
+}
+
+/// Republishes the replay's status as link events for as long as the session lives. The task is
+/// aborted with the session; the generation check, made under the lock, keeps a status that was
+/// already in flight from arriving after the `Replay(None)` of a disconnect.
+async fn replay_pump(
+    shared: Arc<Shared>,
+    mut status: watch::Receiver<ReplayStatus>,
+    generation: u64,
+) {
+    loop {
+        let current = status.borrow_and_update().clone();
+        {
+            let inner = shared.inner.lock().expect("link state lock");
+            if inner.generation != generation {
+                return;
+            }
+            let _ = shared.events.send(LinkEvent::Replay(Some(current)));
+        }
+        if status.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 /// Reads bytes, parses MAVLink, updates vehicle state and republishes each packet on the bus.

@@ -74,6 +74,21 @@ export const emptyStats: LinkStats = {
 
 export const emptyLink: LinkInfo = { state: "disconnected", description: "", error: null, stats: emptyStats };
 
+/** Mirrors `ReplayStatus` in crates/link/src/types.rs: where a log replay is. `null` (no replay) is not a status. */
+export type ReplayStatus = {
+  fileName: string;
+  playing: boolean;
+  /** The log played to its last record; it stays paused there until a seek or Play. */
+  ended: boolean;
+  /** Playback speed multiplier (1 = real time). */
+  speed: number;
+  /** Seconds from the first replayable record of the log. */
+  positionS: number;
+  durationS: number;
+  /** Counts the jumps in the timeline; what the UI accumulated (map track, messages) is rebuilt when it changes. */
+  seekEpoch: number;
+};
+
 export const emptyTelemetry: Telemetry = {
   vehicle: null,
   connected: false,
