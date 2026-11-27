@@ -18,7 +18,7 @@
 }
 .plan-error button { border: 0; background: transparent; padding: 0 4px; color: inherit; }
 
-.plan-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(220px, 1fr) minmax(190px, 300px); gap: 8px; }
+.plan-body { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(260px, 1fr) minmax(130px, 190px); gap: 8px; }
 
 .plan-map { position: relative; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 .plan-map .map { height: 100%; width: 100%; }

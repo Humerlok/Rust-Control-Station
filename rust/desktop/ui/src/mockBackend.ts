@@ -35,6 +35,9 @@ function circlePoint(t: number): { lat: number; lon: number } {
   };
 }
 const MODES = ["Stabilize", "Acro", "AltHold", "Auto", "Guided", "Loiter", "RTL", "Circle", "Land", "PosHold", "Brake", "Smart_RTL"];
+const PLANE_MODES = ["Manual", "Circle", "Stabilize", "FlyByWireA", "FlyByWireB", "Cruise", "Auto", "RTL", "Loiter", "Takeoff", "Guided", "QHover", "QLoiter", "QLand", "QRTL"];
+// `?mock=1&vehicle=plane` simulates a fixed-wing vehicle (HUD airspeed/throttle/waypoint readouts, Plane modes).
+const SIM_PLANE = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("vehicle") === "plane";
 
 const QUICK_FIELDS: FieldInfo[] = [
   { key: "alt", label: "Altitude (rel)", unit: "m", group: "Position" },
@@ -117,8 +120,8 @@ export function createMockBackend(): Backend {
       connected: true,
       armed,
       mode,
-      vehicleType: "Copter",
-      availableModes: MODES,
+      vehicleType: SIM_PLANE ? "Plane" : "Copter",
+      availableModes: SIM_PLANE ? PLANE_MODES : MODES,
       fields: {
         roll: armed ? 18 * Math.sin(t * 0.5) : 0,
         pitch: armed ? 6 * Math.sin(t * 0.3) : 0,
@@ -151,7 +154,7 @@ export function createMockBackend(): Backend {
       position: { lat, lon, altM: alt },
       home: { lat: CENTER.lat, lon: CENTER.lon, altM: 580 },
       vehicles: [
-        { systemId: 1, componentId: 1, vehicleType: "Copter", component: "QUADROTOR", autopilot: true },
+        { systemId: 1, componentId: 1, vehicleType: SIM_PLANE ? "Plane" : "Copter", component: SIM_PLANE ? "FIXED WING" : "QUADROTOR", autopilot: true },
         { systemId: 1, componentId: 154, vehicleType: "Unknown", component: "GIMBAL", autopilot: false },
       ],
     };

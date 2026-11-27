@@ -1,5 +1,6 @@
 /**
- * Heads-up display over the map: heading tape, artificial horizon, mode and readouts (battery voltage, current, %).
+ * Heads-up display over the map: heading tape, artificial horizon, mode and readouts (battery voltage, current, %;
+ * for a Plane also airspeed, throttle and waypoint distance).
  * The user can drag it by the top bar and resize it by the corner handle; it stays inside the map panel and its
  * place is saved in localStorage ("hud.layout"). Double-click the top bar to reset.
  */
@@ -145,6 +146,8 @@ export function Hud({ telemetry }: { telemetry: Telemetry }) {
   const mode = live ? telemetry.mode : null;
   const modeChanged = useRecentChange(mode);
   const heading = normalizeHeading(f.heading ?? f.yaw ?? 0);
+  // Fixed-wing extras: airspeed, throttle and the distance to the active waypoint.
+  const plane = live && telemetry.vehicleType === "Plane";
 
   const rootRef = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -233,7 +236,10 @@ export function Hud({ telemetry }: { telemetry: Telemetry }) {
           {live ? `HDG ${fmt(heading)}° ${CARDINALS[Math.round(heading / 45) % 8]}` : "HDG —"}
         </span>
         <span>GS {fmt(f.groundspeed, 1)} m/s</span>
+        {plane && <span>AS {fmt(f.airspeed, 1)} m/s</span>}
         <span>ALT {fmt(f.alt, 1)} m</span>
+        {plane && <span>THR {fmt(f.throttle)}%</span>}
+        {plane && <span>WP {fmt(f.wp_dist)} m</span>}
         <span className="hud-bat">
           BAT {fmt(f.battery_voltage, 1)} V · {fmt(f.battery_current, 1)} A
           {f.battery_remaining !== undefined ? ` · ${fmt(f.battery_remaining)}%` : ""}

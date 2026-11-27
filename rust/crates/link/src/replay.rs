@@ -10,13 +10,14 @@ use std::{
     time::Duration,
 };
 
+use control_station_ardupilot_meta::VehicleType;
 use control_station_dataflash::Log;
 use control_station_mavlink::{
     dialect::{
         GpsFixType, MavAutopilot, MavModeFlag, MavParamType, MavResult, MavSeverity, MavState,
         MavType, ATTITUDE_DATA, COMMAND_ACK_DATA, GLOBAL_POSITION_INT_DATA, GPS_RAW_INT_DATA,
-        HEARTBEAT_DATA, HOME_POSITION_DATA, LOG_ENTRY_DATA, PARAM_VALUE_DATA, STATUSTEXT_DATA,
-        SYS_STATUS_DATA, VFR_HUD_DATA,
+        HEARTBEAT_DATA, HOME_POSITION_DATA, LOG_ENTRY_DATA, NAV_CONTROLLER_OUTPUT_DATA,
+        PARAM_VALUE_DATA, STATUSTEXT_DATA, SYS_STATUS_DATA, VFR_HUD_DATA,
     },
     encode, MavHeader, MavMessage, MavlinkVersion, Parser,
 };
@@ -64,6 +65,23 @@ enum Event {
     Mode(u32),
     Arm(bool),
     Text(String),
+    /// ARSP: measured airspeed in m/s.
+    Airspeed(f64),
+    /// Plane CTUN: throttle output in percent and the roll/pitch the navigation asks for, in degrees.
+    PlaneTuning {
+        throttle: f64,
+        nav_roll: f64,
+        nav_pitch: f64,
+    },
+    /// Plane NTUN: distance and bearings to the target, altitude, cross-track and airspeed errors.
+    PlaneNav {
+        wp_dist: f64,
+        target_bearing: f64,
+        nav_bearing: f64,
+        alt_error: f64,
+        xtrack_error: f64,
+        aspd_error: f64,
+    },
 }
 
 struct Timed {
@@ -151,6 +169,7 @@ impl ReplayHandle {
 struct Setup {
     events: Arc<[Timed]>,
     params: ReplayParams,
+    vehicle_type: VehicleType,
     speed: f64,
     file_name: String,
     commands: mpsc::UnboundedReceiver<Cmd>,
@@ -171,6 +190,7 @@ fn clamp_speed(speed: f64) -> f64 {
 fn spawn_player(
     events: Vec<Timed>,
     params: Vec<(String, f32)>,
+    vehicle_type: VehicleType,
     speed: f64,
     file_name: String,
 ) -> (tokio::io::DuplexStream, ReplayHandle) {
@@ -191,6 +211,7 @@ fn spawn_player(
     let setup = Setup {
         events: Arc::clone(&events),
         params: ReplayParams::new(params),
+        vehicle_type,
         speed,
         file_name,
         commands: command_rx,
@@ -211,13 +232,17 @@ pub async fn open(path: &str, speed: f64) -> Result<(Connection, ReplayHandle), 
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    let Loaded { events, params } = tokio::task::spawn_blocking(move || load_log(&path))
+    let Loaded {
+        events,
+        params,
+        vehicle_type,
+    } = tokio::task::spawn_blocking(move || load_log(&path))
         .await
         .map_err(|e| LinkError::Other(e.to_string()))??;
     if events.is_empty() {
         return Err(LinkError::Other("the log has no replayable data".into()));
     }
-    let (link_side, handle) = spawn_player(events, params, speed, name.clone());
+    let (link_side, handle) = spawn_player(events, params, vehicle_type, speed, name.clone());
     let (link_reader, link_writer) = tokio::io::split(link_side);
     Ok((
         Connection::from_io(link_reader, link_writer, format!("Replay {name}")),
@@ -230,10 +255,47 @@ struct Loaded {
     events: Vec<Timed>,
     /// Parameters in first-seen order with their last logged value.
     params: Vec<(String, f32)>,
+    /// What the log was recorded on; decides the heartbeat type and so the flight-mode names.
+    vehicle_type: VehicleType,
+}
+
+/// The vehicle family of a log: the `VER` build type, else the firmware banner in the first
+/// messages, else a few parameters only one family has.
+fn detect_vehicle(log: &Log) -> VehicleType {
+    let known = |kind: VehicleType| (kind != VehicleType::Unknown).then_some(kind);
+    if let Some(kind) = log
+        .records_named("VER")
+        .next()
+        .and_then(|r| r.i64("BU"))
+        .and_then(|bu| known(VehicleType::from_build_type(bu)))
+    {
+        return kind;
+    }
+    if let Some(kind) = log
+        .records_named("MSG")
+        .take(40)
+        .filter_map(|r| r.text("Message").map(VehicleType::from_firmware_banner))
+        .find_map(known)
+    {
+        return kind;
+    }
+    let has_param = |name: &str| {
+        log.records_named("PARM")
+            .any(|r| r.text("Name") == Some(name))
+    };
+    if has_param("TRIM_ARSPD_CM") || has_param("Q_ENABLE") {
+        VehicleType::Plane
+    } else if has_param("WPNAV_SPEED") {
+        VehicleType::Copter
+    } else {
+        VehicleType::Unknown
+    }
 }
 
 fn load_log(path: &Path) -> Result<Loaded, LinkError> {
     let log = Log::open(path).map_err(|e| LinkError::Other(format!("{}: {e}", path.display())))?;
+    let vehicle_type = detect_vehicle(&log);
+    let is_plane = vehicle_type == VehicleType::Plane;
     let mut events = Vec::new();
     let mut params: Vec<(String, f32)> = Vec::new();
     let mut param_index: HashMap<String, usize> = HashMap::new();
@@ -290,6 +352,31 @@ fn load_log(path: &Path) -> Result<Loaded, LinkError> {
                 Some(text) => Event::Text(text.to_owned()),
                 None => continue,
             },
+            // Only the first airspeed sensor.
+            "ARSP" if r.i64("I").unwrap_or(0) == 0 => match r.f64("Airspeed") {
+                Some(speed) => Event::Airspeed(speed),
+                None => continue,
+            },
+            // Copter's CTUN means something else (throttle as a 0..1 fraction), so Plane only.
+            "CTUN" if is_plane => match r.f64("ThO") {
+                Some(throttle) => Event::PlaneTuning {
+                    throttle,
+                    nav_roll: f(&r, "NavRoll"),
+                    nav_pitch: f(&r, "NavPitch"),
+                },
+                None => continue,
+            },
+            "NTUN" if is_plane => match r.f64("Dist") {
+                Some(wp_dist) => Event::PlaneNav {
+                    wp_dist,
+                    target_bearing: f(&r, "TBrg"),
+                    nav_bearing: f(&r, "NavBrg"),
+                    alt_error: f(&r, "AltE"),
+                    xtrack_error: f(&r, "XT"),
+                    aspd_error: f(&r, "AsE"),
+                },
+                None => continue,
+            },
             _ => continue,
         };
         if let Some(time_us) = r.time_us() {
@@ -297,7 +384,11 @@ fn load_log(path: &Path) -> Result<Loaded, LinkError> {
         }
     }
     events.sort_by_key(|e| e.time_us);
-    Ok(Loaded { events, params })
+    Ok(Loaded {
+        events,
+        params,
+        vehicle_type,
+    })
 }
 
 /// The parameters the replayed vehicle serves and accepts writes to.
@@ -393,13 +484,52 @@ impl Sender {
 
 #[derive(Default)]
 struct Vehicle {
+    /// Decides the MAV_TYPE of the heartbeat, which the app turns into mode names and the HUD type.
+    kind: VehicleType,
     mode: u32,
     armed: bool,
     yaw_deg: f64,
+    /// Ground speed (m/s) and altitude (m) of the last GPS record, shown by VFR_HUD.
     speed: f64,
+    gps_alt: f64,
+    /// Measured airspeed; without an ARSP record the ground speed stands in for it.
+    airspeed: Option<f64>,
+    throttle: f64,
+    /// Navigation targets from the Plane tuning records, resent whole whenever one part changes.
+    nav: NAV_CONTROLLER_OUTPUT_DATA,
+}
+
+/// The MAV_TYPE a replayed vehicle of this family announces; an unknown log keeps the old quadrotor.
+fn mav_type_of(kind: VehicleType) -> MavType {
+    match kind {
+        VehicleType::Plane => MavType::MAV_TYPE_FIXED_WING,
+        VehicleType::Rover => MavType::MAV_TYPE_GROUND_ROVER,
+        VehicleType::Sub => MavType::MAV_TYPE_SUBMARINE,
+        VehicleType::Tracker => MavType::MAV_TYPE_ANTENNA_TRACKER,
+        VehicleType::Blimp => MavType::MAV_TYPE_AIRSHIP,
+        VehicleType::Copter | VehicleType::Unknown => MavType::MAV_TYPE_QUADROTOR,
+    }
 }
 
 impl Vehicle {
+    fn new(kind: VehicleType) -> Self {
+        Self {
+            kind,
+            ..Self::default()
+        }
+    }
+
+    fn vfr_hud(&self) -> MavMessage {
+        MavMessage::VFR_HUD(VFR_HUD_DATA {
+            airspeed: self.airspeed.unwrap_or(self.speed) as f32,
+            groundspeed: self.speed as f32,
+            alt: self.gps_alt as f32,
+            climb: 0.0,
+            heading: self.yaw_deg as i16,
+            throttle: self.throttle.clamp(0.0, 100.0) as u16,
+        })
+    }
+
     fn heartbeat(&self) -> MavMessage {
         let mut base = MavModeFlag::MAV_MODE_FLAG_CUSTOM_MODE_ENABLED;
         if self.armed {
@@ -407,7 +537,7 @@ impl Vehicle {
         }
         MavMessage::HEARTBEAT(HEARTBEAT_DATA {
             custom_mode: self.mode,
-            mavtype: MavType::MAV_TYPE_QUADROTOR,
+            mavtype: mav_type_of(self.kind),
             autopilot: MavAutopilot::MAV_AUTOPILOT_ARDUPILOTMEGA,
             base_mode: base,
             system_status: MavState::MAV_STATE_ACTIVE,
@@ -514,6 +644,7 @@ fn convert(event: &Event, vehicle: &mut Vehicle, time_us: u64, start_us: u64) ->
             speed,
         } => {
             vehicle.speed = *speed;
+            vehicle.gps_alt = *alt;
             vec![
                 MavMessage::GPS_RAW_INT(GPS_RAW_INT_DATA {
                     time_usec: time_us,
@@ -528,15 +659,42 @@ fn convert(event: &Event, vehicle: &mut Vehicle, time_us: u64, start_us: u64) ->
                     satellites_visible: (*sats).clamp(0, 254) as u8,
                     ..GPS_RAW_INT_DATA::default()
                 }),
-                MavMessage::VFR_HUD(VFR_HUD_DATA {
-                    airspeed: *speed as f32,
-                    groundspeed: *speed as f32,
-                    alt: *alt as f32,
-                    climb: 0.0,
-                    heading: vehicle.yaw_deg as i16,
-                    throttle: 0,
-                }),
+                vehicle.vfr_hud(),
             ]
+        }
+        Event::Airspeed(speed) => {
+            vehicle.airspeed = Some(*speed);
+            vec![vehicle.vfr_hud()]
+        }
+        Event::PlaneTuning {
+            throttle,
+            nav_roll,
+            nav_pitch,
+        } => {
+            vehicle.throttle = *throttle;
+            vehicle.nav.nav_roll = *nav_roll as f32;
+            vehicle.nav.nav_pitch = *nav_pitch as f32;
+            vec![
+                vehicle.vfr_hud(),
+                MavMessage::NAV_CONTROLLER_OUTPUT(vehicle.nav.clone()),
+            ]
+        }
+        Event::PlaneNav {
+            wp_dist,
+            target_bearing,
+            nav_bearing,
+            alt_error,
+            xtrack_error,
+            aspd_error,
+        } => {
+            let nav = &mut vehicle.nav;
+            nav.wp_dist = wp_dist.clamp(0.0, 65_534.0) as u16;
+            nav.target_bearing = *target_bearing as i16;
+            nav.nav_bearing = *nav_bearing as i16;
+            nav.alt_error = *alt_error as f32;
+            nav.xtrack_error = *xtrack_error as f32;
+            nav.aspd_error = *aspd_error as f32;
+            vec![MavMessage::NAV_CONTROLLER_OUTPUT(nav.clone())]
         }
         Event::Battery {
             volts,
@@ -559,10 +717,12 @@ fn convert(event: &Event, vehicle: &mut Vehicle, time_us: u64, start_us: u64) ->
 /// The vehicle as it was after the records in `past`, for a jump in the timeline: the last mode and
 /// arm state, plus the last attitude, position, GPS and battery record converted as they were
 /// while playing. Messages (STATUSTEXT) are not replayed: they were events, not state.
-fn keyframe(past: &[Timed], start_us: u64) -> (Vehicle, Vec<MavMessage>) {
-    let mut vehicle = Vehicle::default();
+fn keyframe(past: &[Timed], start_us: u64, kind: VehicleType) -> (Vehicle, Vec<MavMessage>) {
+    let mut vehicle = Vehicle::new(kind);
     let (mut mode, mut armed) = (None, None);
     let (mut attitude, mut position, mut gps, mut battery) = (None, None, None, None);
+    let (mut airspeed, mut tuning, mut nav) = (None, None, None);
+    let is_plane = kind == VehicleType::Plane;
     for timed in past.iter().rev() {
         match &timed.event {
             Event::Mode(m) => {
@@ -583,23 +743,39 @@ fn keyframe(past: &[Timed], start_us: u64) -> (Vehicle, Vec<MavMessage>) {
             Event::Battery { .. } => {
                 battery.get_or_insert(timed);
             }
+            Event::Airspeed(_) => {
+                airspeed.get_or_insert(timed);
+            }
+            Event::PlaneTuning { .. } => {
+                tuning.get_or_insert(timed);
+            }
+            Event::PlaneNav { .. } => {
+                nav.get_or_insert(timed);
+            }
             Event::Text(_) => {}
         }
+        // A log without airspeed or Plane records is scanned to its start; the plane-only
+        // records are not waited for on other vehicles.
         if mode.is_some()
             && armed.is_some()
             && attitude.is_some()
             && position.is_some()
             && gps.is_some()
             && battery.is_some()
+            && (!is_plane || (tuning.is_some() && nav.is_some()))
         {
             break;
         }
     }
     vehicle.mode = mode.unwrap_or(0);
     vehicle.armed = armed.unwrap_or(false);
-    // Attitude first: the position and GPS messages carry the heading it sets.
+    // Attitude first: the position and GPS messages carry the heading it sets. The airspeed and
+    // Plane records come after the GPS one, whose VFR_HUD would otherwise overwrite them.
     let mut messages = Vec::new();
-    for timed in [attitude, position, gps, battery].into_iter().flatten() {
+    for timed in [attitude, position, gps, battery, airspeed, tuning, nav]
+        .into_iter()
+        .flatten()
+    {
         messages.extend(convert(&timed.event, &mut vehicle, timed.time_us, start_us));
     }
     (vehicle, messages)
@@ -786,7 +962,7 @@ impl Player {
         let position_us = ((seconds * 1e6) as u64).min(self.duration_us);
         let events = Arc::clone(&self.events);
         self.next = events.partition_point(|timed| timed.time_us <= self.start_us + position_us);
-        let (vehicle, motion) = keyframe(&events[..self.next], self.start_us);
+        let (vehicle, motion) = keyframe(&events[..self.next], self.start_us, self.vehicle.kind);
         self.vehicle = vehicle;
         let mut messages = vec![self.vehicle.heartbeat()];
         messages.extend(self.home.map(home_message));
@@ -883,6 +1059,7 @@ async fn run(setup: Setup, stream: tokio::io::DuplexStream) {
     let Setup {
         events,
         params,
+        vehicle_type,
         speed,
         file_name,
         commands,
@@ -981,7 +1158,7 @@ async fn run(setup: Setup, stream: tokio::io::DuplexStream) {
         sender,
         status,
         clock: Clock::new(Instant::now(), speed),
-        vehicle: Vehicle::default(),
+        vehicle: Vehicle::new(vehicle_type),
         next: 0,
         ended: false,
         epoch: 0,
@@ -1078,7 +1255,13 @@ mod tests {
     }
 
     fn start(events: Vec<Timed>, speed: f64) -> (Frames, ReplayHandle) {
-        let (stream, handle) = spawn_player(events, Vec::new(), speed, "test.BIN".into());
+        let (stream, handle) = spawn_player(
+            events,
+            Vec::new(),
+            VehicleType::Copter,
+            speed,
+            "test.BIN".into(),
+        );
         let frames = Frames {
             stream,
             parser: Parser::new(),
@@ -1136,7 +1319,7 @@ mod tests {
             position(2.5, -20.5, -47.4),
             timed(3.0, Event::Mode(5)),
         ];
-        let (vehicle, messages) = keyframe(&past, at_s(0.0));
+        let (vehicle, messages) = keyframe(&past, at_s(0.0), VehicleType::Copter);
         assert_eq!(vehicle.mode, 5);
         assert!(vehicle.armed);
         // Only the last attitude and position; no GPS or battery yet, and the text is not replayed.
@@ -1151,9 +1334,108 @@ mod tests {
         // The heading comes from the attitude that was just sent.
         assert_eq!(p.hdg, 9000);
 
-        let (empty, none) = keyframe(&[], at_s(0.0));
+        let (empty, none) = keyframe(&[], at_s(0.0), VehicleType::Copter);
         assert_eq!((empty.mode, empty.armed), (0, false));
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn a_plane_announces_itself_and_reports_airspeed_throttle_and_navigation() {
+        let mut plane = Vehicle::new(VehicleType::Plane);
+        let MavMessage::HEARTBEAT(h) = plane.heartbeat() else {
+            panic!("expected HEARTBEAT");
+        };
+        assert_eq!(h.mavtype, MavType::MAV_TYPE_FIXED_WING);
+        assert_eq!(
+            VehicleType::from_mav_type(h.mavtype as u8),
+            VehicleType::Plane
+        );
+        // Unknown logs keep announcing a quadrotor.
+        let MavMessage::HEARTBEAT(h) = Vehicle::default().heartbeat() else {
+            panic!("expected HEARTBEAT");
+        };
+        assert_eq!(h.mavtype, MavType::MAV_TYPE_QUADROTOR);
+
+        let gps = Event::Gps {
+            status: 3,
+            sats: 12,
+            hdop: 0.9,
+            lat: -20.0,
+            lon: -47.0,
+            alt: 700.0,
+            speed: 21.0,
+        };
+        let messages = convert(&gps, &mut plane, at_s(1.0), at_s(0.0));
+        let MavMessage::VFR_HUD(v) = &messages[1] else {
+            panic!("expected VFR_HUD, got {:?}", messages[1]);
+        };
+        // No ARSP yet: the ground speed stands in for the airspeed.
+        assert_eq!((v.airspeed, v.groundspeed), (21.0, 21.0));
+
+        let messages = convert(&Event::Airspeed(18.5), &mut plane, at_s(2.0), at_s(0.0));
+        let MavMessage::VFR_HUD(v) = &messages[0] else {
+            panic!("expected VFR_HUD");
+        };
+        assert_eq!((v.airspeed, v.groundspeed, v.alt), (18.5, 21.0, 700.0));
+
+        let tuning = Event::PlaneTuning {
+            throttle: 64.0,
+            nav_roll: -12.0,
+            nav_pitch: 3.0,
+        };
+        let messages = convert(&tuning, &mut plane, at_s(3.0), at_s(0.0));
+        let MavMessage::VFR_HUD(v) = &messages[0] else {
+            panic!("expected VFR_HUD");
+        };
+        assert_eq!(v.throttle, 64);
+        let nav = Event::PlaneNav {
+            wp_dist: 350.4,
+            target_bearing: 90.0,
+            nav_bearing: 85.0,
+            alt_error: -2.0,
+            xtrack_error: 4.0,
+            aspd_error: 1.5,
+        };
+        let messages = convert(&nav, &mut plane, at_s(3.0), at_s(0.0));
+        let MavMessage::NAV_CONTROLLER_OUTPUT(n) = &messages[0] else {
+            panic!("expected NAV_CONTROLLER_OUTPUT");
+        };
+        // The roll and pitch from the tuning record are kept when the navigation record arrives.
+        assert_eq!((n.wp_dist, n.nav_bearing, n.nav_roll), (350, 85, -12.0));
+    }
+
+    #[test]
+    fn a_plane_keyframe_restores_airspeed_throttle_and_navigation() {
+        let past = vec![
+            timed(0.0, Event::Airspeed(15.0)),
+            timed(
+                1.0,
+                Event::PlaneTuning {
+                    throttle: 50.0,
+                    nav_roll: 5.0,
+                    nav_pitch: 1.0,
+                },
+            ),
+            timed(
+                1.5,
+                Event::PlaneNav {
+                    wp_dist: 100.0,
+                    target_bearing: 10.0,
+                    nav_bearing: 12.0,
+                    alt_error: 0.0,
+                    xtrack_error: 0.0,
+                    aspd_error: 0.0,
+                },
+            ),
+            timed(2.0, Event::Airspeed(17.0)),
+        ];
+        let (vehicle, messages) = keyframe(&past, at_s(0.0), VehicleType::Plane);
+        assert_eq!(vehicle.kind, VehicleType::Plane);
+        assert_eq!(vehicle.airspeed, Some(17.0));
+        assert_eq!(vehicle.throttle, 50.0);
+        assert!(messages
+            .iter()
+            .any(|m| matches!(m, MavMessage::NAV_CONTROLLER_OUTPUT(n) if n.wp_dist == 100)));
     }
 
     #[test]

@@ -11,7 +11,7 @@ pub use pdef::{
 };
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VehicleType {
     Copter,
     Plane,
@@ -19,6 +19,7 @@ pub enum VehicleType {
     Sub,
     Tracker,
     Blimp,
+    #[default]
     Unknown,
 }
 
@@ -34,6 +35,35 @@ impl VehicleType {
             7 => Self::Blimp,
             _ => Self::Unknown,
         }
+    }
+
+    /// Maps the `BU` field of a DataFlash `VER` record (the firmware's build type).
+    pub fn from_build_type(build_type: i64) -> Self {
+        match build_type {
+            1 => Self::Rover,
+            2 => Self::Copter,
+            3 => Self::Plane,
+            4 => Self::Tracker,
+            7 => Self::Sub,
+            12 => Self::Blimp,
+            _ => Self::Unknown,
+        }
+    }
+
+    /// Recognizes the firmware banner a DataFlash log prints first ("ArduPlane V4.5.7 (...)").
+    pub fn from_firmware_banner(text: &str) -> Self {
+        const NAMES: [(&str, VehicleType); 6] = [
+            ("ArduCopter", VehicleType::Copter),
+            ("ArduPlane", VehicleType::Plane),
+            ("ArduRover", VehicleType::Rover),
+            ("ArduSub", VehicleType::Sub),
+            ("AntennaTracker", VehicleType::Tracker),
+            ("Blimp", VehicleType::Blimp),
+        ];
+        NAMES
+            .iter()
+            .find(|(name, _)| text.contains(name))
+            .map_or(Self::Unknown, |(_, kind)| *kind)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -129,6 +159,7 @@ const PLANE_MODES: &[(u32, &str)] = &[
     (23, "QAcro"),
     (24, "Thermal"),
     (25, "Loiter to QLand"),
+    (26, "AutoLand"),
 ];
 
 const ROVER_MODES: &[(u32, &str)] = &[
@@ -190,6 +221,23 @@ mod tests {
         assert_eq!(VehicleType::Copter.mode_number("rtl"), Some(6));
         assert_eq!(VehicleType::Copter.mode_name(8), None);
         assert!(VehicleType::Unknown.modes().is_empty());
+    }
+
+    #[test]
+    fn plane_modes_and_log_detection() {
+        assert_eq!(VehicleType::Plane.mode_name(12), Some("Loiter"));
+        assert_eq!(VehicleType::Plane.mode_name(5), Some("FlyByWireA"));
+        assert_eq!(VehicleType::Plane.mode_name(26), Some("AutoLand"));
+        assert_eq!(VehicleType::from_build_type(3), VehicleType::Plane);
+        assert_eq!(VehicleType::from_build_type(99), VehicleType::Unknown);
+        assert_eq!(
+            VehicleType::from_firmware_banner("ArduPlane V4.5.7 (2a3dc4b7)"),
+            VehicleType::Plane
+        );
+        assert_eq!(
+            VehicleType::from_firmware_banner("ChibiOS: 1a2b3c4d"),
+            VehicleType::Unknown
+        );
     }
 
     #[test]
